@@ -1,0 +1,176 @@
+"""Local HTTP contract tests; no Django or third-party test framework required."""
+import asyncio
+import os
+from pathlib import Path
+from queue import Empty
+import sys
+import threading
+import time
+import unittest
+
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
+from aiohttp import web
+from network import NetworkWorker
+from state import Request
+
+PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
+
+class ContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ready = threading.Event()
+        cls.loop = asyncio.new_event_loop()
+        cls.calls = []
+        cls.mode = 'ok'
+        cls.serial = 0
+        async def handler(req):
+            cls.calls.append((req.method, req.path))
+            if req.path == '/api/auth/csrf/':
+                token = 'rotated' if req.cookies.get('sessionid') else 'initial'
+                resp = web.json_response({'csrfToken': token})
+                resp.set_cookie('csrftoken', token)
+                return resp
+            if req.path == '/api/auth/login/':
+                assert req.headers['Origin'] == cls.origin
+                assert req.headers['X-CSRFToken'] == req.cookies['csrftoken'] == 'initial'
+                assert await req.json() == {'username': 'student', 'password': 'test-only'}
+                cls.serial += 1
+                resp = web.json_response({'authenticated': True})
+                resp.set_cookie('sessionid', str(cls.serial))
+                resp.set_cookie('csrftoken', 'rotated')
+                return resp
+            if req.path == '/api/auth/logout/':
+                assert req.headers['Origin'] == cls.origin
+                assert req.headers['X-CSRFToken'] == req.cookies['csrftoken'] == 'rotated'
+                return web.Response(status=204)
+            if req.path == '/api/player/':
+                assert req.cookies.get('sessionid')
+                assert req.cookies['csrftoken'] == 'rotated'
+                if cls.mode == 'slow':
+                    await asyncio.sleep(10)
+                if cls.mode in ('302', '401', '403'):
+                    return web.Response(status=int(cls.mode), headers={'Location': '/trap'}, text='<html>private</html>')
+                if cls.mode == 'html':
+                    return web.Response(text='<html>private</html>', content_type='text/html')
+                if cls.mode == 'badjson':
+                    return web.Response(text='{', content_type='application/json')
+                if cls.mode == 'schema':
+                    return web.json_response({'password': 'do-not-display'})
+                return web.json_response({**PLAYER, 'password': 'do-not-display', 'csrfToken': 'hidden'})
+            raise AssertionError('Unexpected route / redirect followed')
+        async def start():
+            app = web.Application()
+            app.router.add_route('*', '/{tail:.*}', handler)
+            cls.runner = web.AppRunner(app, access_log=None, shutdown_timeout=0.1)
+            await cls.runner.setup()
+            site = web.TCPSite(cls.runner, '127.0.0.1', 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            cls.origin = f'http://127.0.0.1:{port}'
+            cls.ready.set()
+        def run():
+            asyncio.set_event_loop(cls.loop)
+            cls.loop.run_until_complete(start())
+            cls.loop.run_forever()
+            cls.loop.run_until_complete(cls.runner.cleanup())
+            pending = asyncio.all_tasks(cls.loop)
+            for task in pending:
+                task.cancel()
+            cls.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            cls.loop.close()
+        cls.server = threading.Thread(target=run)
+        cls.server.start()
+        if not cls.ready.wait(3):
+            raise RuntimeError('mock server failed to start')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.loop.call_soon_threadsafe(cls.loop.stop)
+        cls.server.join(3)
+
+    def setUp(self):
+        type(self).mode = 'ok'
+        self.calls.clear()
+        self.worker = NetworkWorker(self.origin)
+        self.worker.start()
+
+    def tearDown(self):
+        self.worker.stop()
+        self.worker.thread.join(2)
+        self.assertFalse(self.worker.thread.is_alive())
+
+    def result(self):
+        results = []
+        while True:
+            result = self.worker.results.get(timeout=6)
+            results.append(result)
+            if result.kind != 'api':
+                return result, results
+
+    def login(self):
+        request = Request('login', 'student', 'test-only')
+        self.worker.submit(request)
+        result, results = self.result()
+        self.assertEqual(request.password, '')
+        self.assertNotIn('test-only', repr(request))
+        return result, results
+
+    def test_login_rotation_player_logout(self):
+        result, results = self.login()
+        self.assertEqual(result.kind, 'player')
+        self.assertEqual(result.player, PLAYER)
+        self.assertEqual(results[0].player, PLAYER)
+        self.assertNotIn('hidden', repr(results))
+        self.assertNotIn('do-not-display', repr(results))
+        self.assertEqual(self.calls, [('GET', '/api/auth/csrf/'), ('POST', '/api/auth/login/'),
+                                     ('GET', '/api/auth/csrf/'), ('GET', '/api/player/')])
+        self.worker.submit(Request('logout'))
+        self.assertEqual(self.result()[0].kind, 'logged_out')
+        self.assertEqual(self.calls[-2:], [('GET', '/api/auth/csrf/'), ('POST', '/api/auth/logout/')])
+
+    def test_status_content_type_and_schema(self):
+        for mode in ('302', '401', '403', 'html', 'badjson', 'schema'):
+            with self.subTest(mode=mode):
+                type(self).mode = mode
+                result, results = self.login()
+                self.assertEqual(result.kind, 'error')
+                self.assertNotIn('/trap', repr(self.calls))
+                self.assertNotIn('<html>', repr(results))
+                self.assertNotIn('do-not-display', repr(results))
+                if mode == '403':
+                    self.assertIn('CSRF / Origin', result.message)
+                if mode in ('302', '401'):
+                    self.assertTrue(result.needs_login)
+
+    def test_separate_cookie_jars(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        other = NetworkWorker(self.origin)
+        other.start()
+        try:
+            other.submit(Request('login', 'student', 'test-only'))
+            self.assertEqual(other.results.get(timeout=5).kind, 'api')
+            self.assertEqual(other.results.get(timeout=5).kind, 'player')
+        finally:
+            other.stop()
+            other.thread.join(2)
+        self.assertIsNot(self.worker._session.cookie_jar, other._session.cookie_jar)
+
+    def test_cancel_inflight_and_timeout(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        type(self).mode = 'slow'
+        self.worker.submit(Request('player'))
+        result, _ = self.result()
+        self.assertEqual(result.kind, 'error')
+        self.assertIn('시간 초과', result.message)
+        self.worker.submit(Request('player'))
+        time.sleep(0.1)  # Test harness only, never the UI.
+        start = time.monotonic()
+        self.worker.stop()
+        self.worker.thread.join(1)
+        self.assertFalse(self.worker.thread.is_alive())
+        self.assertLess(time.monotonic() - start, 1)
+        self.assertTrue(self.worker._session.closed)
+
+if __name__ == '__main__':
+    unittest.main()

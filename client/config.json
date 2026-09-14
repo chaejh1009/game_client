@@ -3,5 +3,11 @@
   "window_width": 960,
   "window_height": 720,
   "tile_size": 32,
-  "assets_dir": "assets"
+  "assets_dir": "assets",
+  "grass_path": "assets/grass.png",
+  "path_path": "assets/path.png",
+  "tree_path": "assets/tree.png",
+  "house_path": "assets/house.png",
+  "hero_path": "assets/hero.png",
+  "font_path": null
 }

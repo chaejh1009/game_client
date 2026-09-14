@@ -13,6 +13,12 @@ class Config:
     window_height: int
     tile_size: int
     assets_dir: Path
+    grass_path: Path
+    path_path: Path
+    tree_path: Path
+    house_path: Path
+    hero_path: Path
+    font_path: Path | None
 
     @classmethod
     def load(cls):
@@ -28,7 +34,30 @@ class Config:
         if any(type(v) is not int for v in sizes) or not (
                 640 <= sizes[0] <= 3840 and 600 <= sizes[1] <= 2160 and 8 <= sizes[2] <= 128):
             raise ValueError('창 크기는 640×600~3840×2160, 타일은 8~128 정수여야 합니다.')
-        return cls(origin, *sizes, (path.parent / data.get('assets_dir', 'assets')).resolve())
+        def configured_path(key, *, optional=False):
+            value = data.get(key)
+            if optional and value is None:
+                return None
+            if not isinstance(value, str) or not value:
+                raise ValueError(f'client/config.json의 {key} 경로를 확인하세요.')
+            resolved = (path.parent / value).resolve()
+            if not resolved.is_relative_to(path.parent):
+                raise ValueError(f'{key}는 client 폴더 안의 경로여야 합니다.')
+            return resolved
+
+        return cls(
+            server_base_url=origin,
+            window_width=sizes[0],
+            window_height=sizes[1],
+            tile_size=sizes[2],
+            assets_dir=(path.parent / data.get('assets_dir', 'assets')).resolve(),
+            grass_path=configured_path('grass_path'),
+            path_path=configured_path('path_path'),
+            tree_path=configured_path('tree_path'),
+            house_path=configured_path('house_path'),
+            hero_path=configured_path('hero_path'),
+            font_path=configured_path('font_path', optional=True),
+        )
 
 @dataclass
 class Request:

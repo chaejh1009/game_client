@@ -139,12 +139,73 @@ class NetworkWorker:
             if inspect_player:
                 self.results.put(Result('api', status=status, player=safe))
 
-    async def _csrf(self):
-        data = await self._http('GET', '/api/auth/csrf/')
-        token = data.get('csrfToken')
-        if not isinstance(token, str) or not token or len(token) > 512:
-            raise Failure('CSRF 응답 계약을 확인하세요.')
+    async def _discard_html(self, response):
+        size = 0
+        async for chunk in response.content.iter_chunked(8192):
+            size += len(chunk)
+            if size > 65536:
+                raise Failure('서버 HTML 응답이 너무 큽니다.')
+
+    def _csrf_from_response(self, response):
+        cookie = response.cookies.get('csrftoken')
+        token = cookie.value if cookie is not None else ''
+        if not token or len(token) > 512:
+            raise Failure('Django 로그인 페이지에서 CSRF 쿠키를 받지 못했습니다.')
         self._token = token
+
+    async def _prepare_form_login(self):
+        async with self._session.get(
+                self.origin + '/accounts/login/',
+                headers={'Accept': 'text/html'}, allow_redirects=False) as response:
+            if response.status == 404:
+                raise Failure('Django 로그인 경로(/accounts/login/)를 찾을 수 없습니다.')
+            if not 200 <= response.status < 300:
+                raise Failure(f'로그인 페이지 요청 실패 (HTTP {response.status}).')
+            await self._discard_html(response)
+            self._csrf_from_response(response)
+
+    async def _form_login(self, username, password):
+        form = {'username': username, 'password': password}
+        headers = {
+            'Accept': 'text/html',
+            'X-CSRFToken': self._token,
+            'Origin': self.origin,
+            'Referer': self.origin + '/accounts/login/',
+        }
+        try:
+            async with self._session.post(
+                    self.origin + '/accounts/login/', data=form, headers=headers,
+                    allow_redirects=False) as response:
+                if response.status == 403:
+                    raise Failure('접속 거부: 서버의 CSRF / Origin 설정을 확인하세요.')
+                if response.status in (301, 302, 303):
+                    await self._discard_html(response)
+                    self._csrf_from_response(response)  # Django rotates it after login().
+                    return
+                if response.status == 200:
+                    await self._discard_html(response)
+                    raise Failure('로그인에 실패했습니다. 계정을 확인하세요.', True)
+                raise Failure(f'로그인 요청 실패 (HTTP {response.status}).')
+        finally:
+            form.clear()
+
+    async def _form_logout(self):
+        if not self._token:
+            raise Failure('로그아웃에 사용할 CSRF 토큰이 없습니다.')
+        headers = {
+            'Accept': 'text/html',
+            'X-CSRFToken': self._token,
+            'Origin': self.origin,
+            'Referer': self.origin + '/play/',
+        }
+        async with self._session.post(
+                self.origin + '/accounts/logout/', data={}, headers=headers,
+                allow_redirects=False) as response:
+            if response.status == 403:
+                raise Failure('접속 거부: 서버의 CSRF / Origin 설정을 확인하세요.')
+            if response.status not in (200, 204, 301, 302, 303):
+                raise Failure(f'로그아웃 요청 실패 (HTTP {response.status}).')
+            await self._discard_html(response)
 
     async def _dispatch(self, request):
         try:
@@ -152,16 +213,13 @@ class NetworkWorker:
                 self._session.cookie_jar.clear()
                 self._token = ''
                 self._authenticated = False
-                await self._csrf()
-                payload = {'username': request.username, 'password': request.password}
+                await self._prepare_form_login()
+                username, password = request.username, request.password
                 request.password = request.username = ''
                 try:
-                    data = await self._http('POST', '/api/auth/login/', payload=payload)
+                    await self._form_login(username, password)
                 finally:
-                    payload.clear()
-                if data.get('authenticated') is not True:
-                    raise Failure('로그인에 실패했습니다. 계정을 확인하세요.', True)
-                await self._csrf()  # Django rotates the CSRF token on successful login.
+                    username = password = ''
                 self._authenticated = True
                 player = await self._http('GET', '/api/player/')
                 self.results.put(Result('player', '마을 준비 중', player=player))
@@ -173,8 +231,7 @@ class NetworkWorker:
             elif request.kind == 'logout':
                 try:
                     await self._close_ws()
-                    await self._csrf()
-                    await self._http('POST', '/api/auth/logout/', payload={}, empty_ok=True)
+                    await self._form_logout()
                 finally:
                     self._session.cookie_jar.clear()
                     self._token = ''

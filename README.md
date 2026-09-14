@@ -104,11 +104,10 @@ python client/main.py
 
 | 요청 | 기대하는 응답 / 조건 |
 | --- | --- |
-| `GET /api/auth/csrf/` | 2xx JSON 객체의 비어 있지 않은 문자열 `csrfToken`, CSRF 쿠키 설정 |
-| `POST /api/auth/login/` | JSON `{username,password}`, `X-CSRFToken`, `Origin` 전달. 2xx JSON의 `authenticated`가 불리언 `true` |
-| 로그인 직후 `GET /api/auth/csrf/` | 같은 세션에서 회전된 CSRF 토큰 갱신 |
+| `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
+| `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
-| `POST /api/auth/logout/` | WS가 있으면 먼저 종료, CSRF 재조회 후 최신 토큰과 Origin 사용. 204 또는 2xx JSON 객체 |
+| `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
 
 실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않고 전체 4초, 연결/읽기 2초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.
 

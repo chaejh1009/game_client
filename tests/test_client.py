@@ -26,24 +26,25 @@ class ContractTests(unittest.TestCase):
         cls.serial = 0
         async def handler(req):
             cls.calls.append((req.method, req.path))
-            if req.path == '/api/auth/csrf/':
-                token = 'rotated' if req.cookies.get('sessionid') else 'initial'
-                resp = web.json_response({'csrfToken': token})
-                resp.set_cookie('csrftoken', token)
+            if req.path == '/accounts/login/' and req.method == 'GET':
+                resp = web.Response(text='<form method="post"></form>', content_type='text/html')
+                resp.set_cookie('csrftoken', 'initial')
                 return resp
-            if req.path == '/api/auth/login/':
+            if req.path == '/accounts/login/' and req.method == 'POST':
                 assert req.headers['Origin'] == cls.origin
                 assert req.headers['X-CSRFToken'] == req.cookies['csrftoken'] == 'initial'
-                assert await req.json() == {'username': 'student', 'password': 'test-only'}
+                assert dict(await req.post()) == {'username': 'student', 'password': 'test-only'}
+                if cls.mode == 'bad_credentials':
+                    return web.Response(text='<form><p>invalid</p></form>', content_type='text/html')
                 cls.serial += 1
-                resp = web.json_response({'authenticated': True})
+                resp = web.Response(status=302, headers={'Location': '/play/'})
                 resp.set_cookie('sessionid', str(cls.serial))
                 resp.set_cookie('csrftoken', 'rotated')
                 return resp
-            if req.path == '/api/auth/logout/':
+            if req.path == '/accounts/logout/':
                 assert req.headers['Origin'] == cls.origin
                 assert req.headers['X-CSRFToken'] == req.cookies['csrftoken'] == 'rotated'
-                return web.Response(status=204)
+                return web.Response(status=302, headers={'Location': '/accounts/login/'})
             if req.path == '/api/player/':
                 assert req.cookies.get('sessionid')
                 assert req.cookies['csrftoken'] == 'rotated'
@@ -123,11 +124,11 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(results[0].player, PLAYER)
         self.assertNotIn('hidden', repr(results))
         self.assertNotIn('do-not-display', repr(results))
-        self.assertEqual(self.calls, [('GET', '/api/auth/csrf/'), ('POST', '/api/auth/login/'),
-                                     ('GET', '/api/auth/csrf/'), ('GET', '/api/player/')])
+        self.assertEqual(self.calls, [('GET', '/accounts/login/'), ('POST', '/accounts/login/'),
+                                     ('GET', '/api/player/')])
         self.worker.submit(Request('logout'))
         self.assertEqual(self.result()[0].kind, 'logged_out')
-        self.assertEqual(self.calls[-2:], [('GET', '/api/auth/csrf/'), ('POST', '/api/auth/logout/')])
+        self.assertEqual(self.calls[-1], ('POST', '/accounts/logout/'))
 
     def test_status_content_type_and_schema(self):
         for mode in ('302', '401', '403', 'html', 'badjson', 'schema'):
@@ -155,6 +156,13 @@ class ContractTests(unittest.TestCase):
             other.stop()
             other.thread.join(2)
         self.assertIsNot(self.worker._session.cookie_jar, other._session.cookie_jar)
+
+    def test_bad_credentials(self):
+        type(self).mode = 'bad_credentials'
+        result, _ = self.login()
+        self.assertEqual(result.kind, 'error')
+        self.assertTrue(result.needs_login)
+        self.assertIn('로그인에 실패', result.message)
 
     def test_cancel_inflight_and_timeout(self):
         self.assertEqual(self.login()[0].kind, 'player')

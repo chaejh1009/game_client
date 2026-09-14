@@ -12,7 +12,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
 from aiohttp import web
 from network import NetworkWorker
-from state import Request
+from state import Request, State
 
 PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
 
@@ -22,10 +22,32 @@ class ContractTests(unittest.TestCase):
         cls.ready = threading.Event()
         cls.loop = asyncio.new_event_loop()
         cls.calls = []
+        cls.commands = []
         cls.mode = 'ok'
         cls.serial = 0
         async def handler(req):
             cls.calls.append((req.method, req.path))
+            if req.path == '/ws/play/':
+                assert req.cookies.get('sessionid')
+                ws = web.WebSocketResponse()
+                await ws.prepare(req)
+                await ws.send_json({**PLAYER, 'type': 'state'})
+                async for message in ws:
+                    command = message.json()
+                    cls.commands.append(command)
+                    state = {**PLAYER, 'type': 'state',
+                             'version': PLAYER['version'] + 1,
+                             'command_id': command['command_id']}
+                    if command['type'] == 'move':
+                        direction = command['direction']
+                        dx, dy = {'up': (0, -1), 'down': (0, 1),
+                                  'left': (-1, 0), 'right': (1, 0)}[direction]
+                        state.update(x=PLAYER['x'] + dx, y=PLAYER['y'] + dy)
+                    elif command['type'] == 'gather':
+                        assert 'direction' not in command
+                        state['coins'] = PLAYER['coins'] + 1
+                    await ws.send_json(state)
+                return ws
             if req.path == '/accounts/login/' and req.method == 'GET':
                 resp = web.Response(text='<form method="post"></form>', content_type='text/html')
                 resp.set_cookie('csrftoken', 'initial')
@@ -93,6 +115,7 @@ class ContractTests(unittest.TestCase):
     def setUp(self):
         type(self).mode = 'ok'
         self.calls.clear()
+        self.commands.clear()
         self.worker = NetworkWorker(self.origin)
         self.worker.start()
 
@@ -125,10 +148,48 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn('hidden', repr(results))
         self.assertNotIn('do-not-display', repr(results))
         self.assertEqual(self.calls, [('GET', '/accounts/login/'), ('POST', '/accounts/login/'),
-                                     ('GET', '/api/player/')])
+                                     ('GET', '/api/player/'), ('GET', '/ws/play/')])
         self.worker.submit(Request('logout'))
         self.assertEqual(self.result()[0].kind, 'logged_out')
         self.assertEqual(self.calls[-1], ('POST', '/accounts/logout/'))
+
+    def test_keyboard_and_button_share_command_gate(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.assertTrue(state.begin_command('move', 10.0, 'up'))
+        self.assertFalse(state.begin_command('move', 10.1, 'right'))  # One is pending.
+
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.worker.submit(Request('command', direction='up'))
+        result = self.worker.results.get(timeout=5)
+        self.assertEqual(result.kind, 'command')
+        self.assertEqual(result.direction, 'up')
+        self.assertEqual(result.player['y'], PLAYER['y'] - 1)
+        self.assertEqual(self.commands[0]['type'], 'move')
+
+        state.apply(result)
+        self.assertEqual(state.command_status, 'success')
+        self.assertFalse(state.begin_command('move', 10.1, 'right'))  # Shared rate limit.
+        self.assertTrue(state.begin_command('move', 10.21, 'right'))
+
+    def test_z_gathers_coin_through_shared_command_path(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.assertTrue(state.begin_command('gather', 20.0))
+        self.assertEqual(state.selected_action, 'gather')
+
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.worker.submit(Request('command', action='gather'))
+        result = self.worker.results.get(timeout=5)
+        self.assertEqual(result.kind, 'command')
+        self.assertEqual(result.action, 'gather')
+        self.assertEqual(result.player['coins'], PLAYER['coins'] + 1)
+        self.assertEqual(self.commands[0]['type'], 'gather')
+        self.assertNotIn('direction', self.commands[0])
+
+    def test_login_focus_blocks_movement(self):
+        state = State(focus='username')
+        self.assertFalse(state.begin_command('move', 1.0, 'left'))
+        self.assertFalse(state.command_pending)
+        self.assertIn('로그인 입력 중', state.message)
 
     def test_status_content_type_and_schema(self):
         for mode in ('302', '401', '403', 'html', 'badjson', 'schema'):

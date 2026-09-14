@@ -6,6 +6,9 @@ import asyncio
 import json
 from queue import Empty, Queue
 from threading import Thread
+import time
+from urllib.parse import urlsplit, urlunsplit
+from uuid import uuid4
 import aiohttp
 from state import PLAYER_FIELDS, Request, Result
 
@@ -22,7 +25,8 @@ class NetworkWorker:
         self.thread = Thread(target=self._run, name='village-network', daemon=False)
         self._token = ''
         self._authenticated = False
-        self._ws = None  # HTTP-only milestone; any future WS must belong to this loop.
+        self._ws = None  # The socket belongs exclusively to this worker's event loop.
+        self._last_command_at = -1.0
 
     def start(self):
         self.thread.start()
@@ -70,6 +74,10 @@ class NetworkWorker:
                     if active is None:
                         active = asyncio.create_task(self._dispatch(request))
                     else:
+                        if request.kind == 'command':
+                            self.results.put(Result(
+                                'command_error', '이전 게임 명령의 응답을 기다려 주세요.',
+                                direction=request.direction, action=request.action))
                         request.password = request.username = ''
             finally:
                 if active is not None:
@@ -78,6 +86,7 @@ class NetworkWorker:
                 await self._close_ws()
                 jar.clear()
                 self._token = ''
+                self._last_command_at = -1.0
 
     async def _close_ws(self):
         if self._ws is not None:
@@ -138,6 +147,73 @@ class NetworkWorker:
         finally:
             if inspect_player:
                 self.results.put(Result('api', status=status, player=safe))
+
+    def _validate_player(self, data):
+        if not isinstance(data, dict):
+            raise Failure('player 응답은 객체여야 합니다.')
+        validated = {}
+        for key in PLAYER_FIELDS:
+            value = data.get(key)
+            if key in ('player_id', 'room_id'):
+                valid = type(value) is int or (isinstance(value, str) and len(value) <= 80)
+            else:
+                valid = type(value) is int
+            if not valid:
+                raise Failure('player 응답의 필수 필드 또는 자료형을 확인하세요.')
+            validated[key] = value
+        return validated
+
+    async def _receive_ws_state(self, command_id=None):
+        try:
+            async with asyncio.timeout(2):
+                message = await self._ws.receive()
+        except TimeoutError:
+            raise Failure('이동 명령 응답 시간이 초과되었습니다.') from None
+        if message.type != aiohttp.WSMsgType.TEXT:
+            needs_login = self._ws.close_code == 4401
+            raise Failure('게임 연결이 종료되었습니다.', needs_login)
+        if len(message.data) > 65536:
+            raise Failure('게임 응답이 너무 큽니다.')
+        try:
+            data = json.loads(message.data)
+        except (ValueError, UnicodeError):
+            raise Failure('게임 응답 형식이 올바르지 않습니다.') from None
+        if not isinstance(data, dict):
+            raise Failure('게임 응답은 객체여야 합니다.')
+        if data.get('type') == 'error':
+            messages = {
+                'too_fast': '이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.',
+                'outside_map': '맵 바깥으로 이동할 수 없습니다.',
+                'invalid_direction': '올바르지 않은 이동 방향입니다.',
+                'not_at_gather_tile': '코인은 채굴 지점 (2, 2)에서만 채굴할 수 있습니다.',
+                'unknown_action': '올바르지 않은 게임 명령입니다.',
+            }
+            raise Failure(messages.get(data.get('code'), '게임 명령을 처리하지 못했습니다.'))
+        if command_id is not None and data.get('command_id') != command_id:
+            raise Failure('이동 명령 응답 ID가 일치하지 않습니다.')
+        return self._validate_player(data)
+
+    async def _connect_ws(self):
+        parts = urlsplit(self.origin)
+        ws_url = urlunsplit(('wss' if parts.scheme == 'https' else 'ws', parts.netloc,
+                             '/ws/play/', '', ''))
+        self._ws = await self._session.ws_connect(
+            ws_url, origin=self.origin, max_msg_size=65536)
+        await self._receive_ws_state()
+
+    async def _command(self, action, direction):
+        if self._ws is None or self._ws.closed:
+            raise Failure('게임 연결이 끊어졌습니다. 다시 로그인하세요.', True)
+        now = time.monotonic()
+        if self._last_command_at >= 0 and now - self._last_command_at < 0.2:
+            raise Failure('이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.')
+        self._last_command_at = now
+        command_id = str(uuid4())
+        payload = {'type': action, 'command_id': command_id}
+        if action == 'move':
+            payload['direction'] = direction
+        await self._ws.send_json(payload)
+        return await self._receive_ws_state(command_id)
 
     async def _discard_html(self, response):
         size = 0
@@ -222,6 +298,7 @@ class NetworkWorker:
                     username = password = ''
                 self._authenticated = True
                 player = await self._http('GET', '/api/player/')
+                await self._connect_ws()
                 self.results.put(Result('player', '마을 준비 중', player=player))
             elif request.kind == 'player':
                 if not self._authenticated:
@@ -237,6 +314,13 @@ class NetworkWorker:
                     self._token = ''
                     self._authenticated = False
                 self.results.put(Result('logged_out', '로그아웃했습니다.'))
+            elif request.kind == 'command':
+                player = await self._command(request.action, request.direction)
+                message = ('코인 채굴을 완료했습니다.' if request.action == 'gather'
+                           else '이동 명령을 완료했습니다.')
+                self.results.put(Result(
+                    'command', message, player=player, direction=request.direction,
+                    action=request.action))
         except (Failure, aiohttp.ClientError, TimeoutError, ValueError) as error:
             message = str(error) if isinstance(error, Failure) else '서버 연결 실패 또는 시간 초과입니다. 다시 시도하세요.'
             needs_login = isinstance(error, Failure) and error.needs_login
@@ -247,6 +331,8 @@ class NetworkWorker:
                 needs_login = True
             if request.kind == 'logout':
                 message += ' 로컬 계정은 지웠으나 서버 로그아웃은 확인되지 않았습니다.'
-            self.results.put(Result('error', message, needs_login=needs_login))
+            kind = 'command_error' if request.kind == 'command' else 'error'
+            self.results.put(Result(kind, message, needs_login=needs_login,
+                                    direction=request.direction, action=request.action))
         finally:
             request.password = request.username = ''

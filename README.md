@@ -83,7 +83,7 @@ python client/main.py
 
 ## 접속 및 종료
 
-창이 열리면 사용자명과 비밀번호를 입력한 뒤 **접속**을 누릅니다. `Tab`으로 입력칸을 이동하고 `Enter`로 접속할 수도 있습니다. 성공하면 **마을 준비 중** 화면에 자기 player 정보가 표시됩니다. **상태 새로고침**으로 다시 조회하고, **로그아웃**으로 계정 접속을 해제합니다.
+창이 열리면 사용자명과 비밀번호를 입력한 뒤 **접속**을 누릅니다. `Tab`으로 입력칸을 이동하고 `Enter`로 접속할 수도 있습니다. 성공하면 **마을 준비 중** 화면에 자기 player 정보가 표시됩니다. 방향키 또는 화면의 네 방향 버튼으로 이동하고, 채굴 지점 `(2, 2)`에서 `Z` 키나 **Z 코인 채굴** 버튼을 누르면 코인을 채굴합니다. 이동과 채굴은 한 명령 대기와 초당 5개 제한을 공유합니다. 로그인 입력 화면에서는 게임 명령이 전송되지 않습니다. 선택한 명령은 버튼 색과 `요청 중`·`완료`·`실패` 텍스트로 함께 표시됩니다. **상태 새로고침**으로 다시 조회하고, **로그아웃**으로 계정 접속을 해제합니다.
 
 창의 닫기 버튼으로 프로그램을 종료합니다. 터미널에서 가상환경을 해제하려면 `deactivate`를 입력하세요.
 
@@ -107,6 +107,7 @@ python client/main.py
 | `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
 | `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
+| `WS /ws/play/` | 로그인 세션으로 연결하고 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}` 전송. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
 | `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
 
 실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않고 전체 4초, 연결/읽기 2초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.
@@ -123,6 +124,6 @@ API 패널은 최근 `GET /api/player/`의 경로, status, 위 여섯 필드로 
 python -m unittest discover -s tests -v
 ```
 
-모의 서버에서 로그인 순서, 로컬 쿠키 유지, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 실제 Django 서버 통합은 별도 확인이 필요합니다.
+모의 서버에서 로그인 순서, 로컬 쿠키 유지, WebSocket 이동, 공유 명령 제한, 로그인 포커스 이동 차단, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 실제 Django 서버 통합은 별도 확인이 필요합니다.
 
 구현 참고: [aiohttp ClientSession / CookieJar](https://docs.aiohttp.org/en/stable/client_reference.html), [pygame-ce 텍스트 입력](https://pyga.me/docs/ref/key.html).

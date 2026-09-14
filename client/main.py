@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault('PYGAME_HIDE_SUPPORT_PROMPT', '1')
 from queue import Empty
+import time
 import pygame
 from network import NetworkWorker
 from render import Renderer
@@ -40,6 +41,18 @@ def main():
             state.message = '서버에 요청 중…'
             worker.submit(request)
 
+        def request_command(action, direction=''):
+            # Keyboard and mouse deliberately share this gate and request path.
+            if state.begin_command(action, time.monotonic(), direction):
+                worker.submit(Request('command', direction=direction, action=action))
+
+        key_directions = {
+            pygame.K_UP: 'up',
+            pygame.K_DOWN: 'down',
+            pygame.K_LEFT: 'left',
+            pygame.K_RIGHT: 'right',
+        }
+
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT and not state.closing:
@@ -49,15 +62,26 @@ def main():
                     worker.stop()
                 elif not state.closing and not state.busy:
                     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                        names = ('refresh', 'logout') if state.authenticated else ('username', 'password', 'login')
+                        names = (('up', 'down', 'left', 'right', 'gather', 'refresh', 'logout')
+                                 if state.authenticated else ('username', 'password', 'login'))
                         for name in names:
                             if renderer.controls[name].collidepoint(event.pos):
                                 if name in ('username', 'password'):
                                     state.focus = name
+                                elif name in ('up', 'down', 'left', 'right'):
+                                    request_command('move', name)
+                                elif name == 'gather':
+                                    request_command('gather')
                                 else:
                                     submit('player' if name == 'refresh' else name)
-                    elif not state.authenticated and event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_TAB:
+                    elif event.type == pygame.KEYDOWN:
+                        if state.authenticated:
+                            direction = key_directions.get(event.key)
+                            if direction is not None:
+                                request_command('move', direction)
+                            elif event.key == pygame.K_z:
+                                request_command('gather')
+                        elif event.key == pygame.K_TAB:
                             state.focus = 'password' if state.focus == 'username' else 'username'
                         elif event.key == pygame.K_BACKSPACE:
                             setattr(state, state.focus, getattr(state, state.focus)[:-1])

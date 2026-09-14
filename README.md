@@ -1,6 +1,19 @@
-# Village Lab 로컬 Python 접속기
+# Village Lab 로컬 Python 게임 클라이언트
 
-Python 3.12, pygame-ce, aiohttp와 표준 라이브러리만 사용합니다. HTTP 로그인과 자기 상태 조회까지 구현하며 게임 규칙, Django view, DB는 변경하지 않습니다. 브라우저/WebView를 사용하지 않습니다.
+Python 3.12, pygame-ce, aiohttp와 표준 라이브러리로 동작하는 데스크톱 클라이언트입니다. Django 세션 로그인, 자기 player 상태 조회, WebSocket 게임 명령(이동·채굴)을 지원하며 게임 규칙, Django view, DB는 변경하지 않습니다. 브라우저/WebView를 사용하지 않습니다.
+
+로그인 후에는 20×15 타일 마을, 길, 나무·집 장식, 플레이어 스프라이트를 Pygame 화면에 표시합니다. 서버가 반환한 좌표와 코인·버전 정보가 화면과 읽기 전용 state 패널에 반영됩니다.
+
+## 현재 기능
+
+| 기능 | 조작 | 설명 |
+| --- | --- | --- |
+| 이동 | 방향키 또는 화면의 방향 버튼 | 서버의 이동 규칙과 맵 경계 검증을 따릅니다. |
+| 코인 채굴 | `Z` 키 또는 **Z 채굴** 버튼 | 서버가 허용하는 채굴 지점 `(2, 2)`에서만 성공합니다. |
+| 상태 조회 | **새로고침** | `GET /api/player/`로 자기 상태를 다시 가져옵니다. |
+| 접속 해제 | **로그아웃** | WebSocket을 먼저 닫은 뒤 Django 로그아웃을 요청합니다. |
+
+이동과 채굴은 한 명령의 응답을 기다린 뒤 다음 명령을 보내며, 두 종류를 합쳐 0.2초에 한 번만 전송합니다. 명령 버튼과 상태 문구에 `요청 중`·`완료`·`실패`가 표시됩니다.
 
 ## 실행 전 준비
 
@@ -83,7 +96,7 @@ python client/main.py
 
 ## 접속 및 종료
 
-창이 열리면 사용자명과 비밀번호를 입력한 뒤 **접속**을 누릅니다. `Tab`으로 입력칸을 이동하고 `Enter`로 접속할 수도 있습니다. 성공하면 **마을 준비 중** 화면에 자기 player 정보가 표시됩니다. 방향키 또는 화면의 네 방향 버튼으로 이동하고, 채굴 지점 `(2, 2)`에서 `Z` 키나 **Z 코인 채굴** 버튼을 누르면 코인을 채굴합니다. 이동과 채굴은 한 명령 대기와 초당 5개 제한을 공유합니다. 로그인 입력 화면에서는 게임 명령이 전송되지 않습니다. 선택한 명령은 버튼 색과 `요청 중`·`완료`·`실패` 텍스트로 함께 표시됩니다. **상태 새로고침**으로 다시 조회하고, **로그아웃**으로 계정 접속을 해제합니다.
+창이 열리면 사용자명과 비밀번호를 입력한 뒤 **접속**을 누릅니다. `Tab`으로 입력칸을 이동하고 `Enter`로 접속할 수도 있습니다. 로그인 입력 화면에서는 게임 명령이 전송되지 않습니다. 로그인에 성공하면 작은 마을 화면에 자기 player 정보와 맵이 표시됩니다. 방향키 또는 화면의 네 방향 버튼으로 이동하고, `(2, 2)`에 표시된 채굴 지점에서 `Z` 키나 **Z 채굴** 버튼을 누릅니다. **새로고침**으로 HTTP 상태를 다시 조회하고, **로그아웃**으로 계정 접속을 해제합니다.
 
 창의 닫기 버튼으로 프로그램을 종료합니다. 터미널에서 가상환경을 해제하려면 `deactivate`를 입력하세요.
 
@@ -92,13 +105,25 @@ python client/main.py
 ## 파일과 설정
 
 - `client/main.py`: 메인 스레드의 이벤트, 입력, 결과 큐 처리 및 종료.
-- `client/network.py`: 네트워크 worker 하나, asyncio loop 하나, ClientSession 하나. thread-safe Queue로만 명령/결과 전달.
+- `client/network.py`: 네트워크 worker 하나, asyncio loop 하나, ClientSession 하나. HTTP 로그인·상태 조회·로그아웃과 WebSocket 연결·명령을 처리하고 thread-safe Queue로만 명령/결과 전달.
 - `client/state.py`: 설정, UI 상태, 비밀 정보를 포함하지 않는 결과 메시지.
-- `client/render.py`: Pygame 로그인, 마을 준비 중, player 상태, 읽기 전용 API 패널.
-- `client/config.json`: 실제 읽는 설정. 루트에 있던 설정을 복사했으며 루트 `config.json`은 읽지 않습니다.
+- `client/render.py`: 메인 스레드의 Pygame 로그인 화면, 20×15 마을 맵, 타일·스프라이트, 명령 버튼, 읽기 전용 state 패널.
+- `client/config.json`: 실제 읽는 설정. 루트 `config.json`은 읽지 않습니다.
+- `client/assets/`: 기본 타일·장식·플레이어 이미지(`grass.png`, `path.png`, `tree.png`, `house.png`, `hero.png`)와 Kenney 원본 패키지. 원본 패키지의 사용 조건은 각 폴더의 `License.txt`를 확인하세요.
 - `tests/test_client.py`: 표준 unittest와 로컬 aiohttp 모의 서버를 사용하는 계약 검증.
 
-`server_base_url` 기본값은 `http://127.0.0.1:8000`이며 경로 없는 origin이어야 합니다. `window_width`, `window_height`, `tile_size`, `assets_dir`를 읽습니다. `assets_dir: "assets"`는 작업 디렉터리와 관계없이 `client/assets`입니다. 선택적으로 한글 폰트를 `client/assets/font.ttf`에 넣을 수 있으며 없으면 시스템 한글 폰트를 찾습니다. 이번 HTTP 단계에서는 타일 크기만 설정으로 준비하고 타일맵/이미지 자산은 아직 사용하지 않습니다. 이후 이미지 decode와 display도 메인 스레드에서 수행해야 합니다.
+주요 `client/config.json` 설정은 다음과 같습니다.
+
+| 키 | 기본값 | 설명 |
+| --- | --- | --- |
+| `server_base_url` | `http://127.0.0.1:8000` | 경로·쿼리·인증 정보가 없는 HTTP(S) origin입니다. |
+| `window_width`, `window_height` | `960`, `720` | 창 크기입니다. 각각 640~3840, 600~2160 범위의 정수여야 합니다. |
+| `tile_size` | `32` | 8~128 범위의 정수로 검증됩니다. 현재 맵 렌더러는 32px 타일을 사용합니다. |
+| `assets_dir` | `assets` | 기본 자산 폴더 설정입니다. 실제 파일은 아래의 개별 `*_path` 값을 사용합니다. |
+| `grass_path`, `path_path`, `tree_path`, `house_path`, `hero_path` | `assets/<name>.png` | `client/config.json` 기준 상대 경로이며 `client` 폴더 밖을 가리킬 수 없습니다. 현재 이미지는 16×16 PNG를 읽어 32×32로 확대합니다. |
+| `font_path` | `null` | 선택적인 한글 폰트 경로입니다. 지정하지 않으면 시스템 폰트를 찾고, 없으면 Pygame 기본 폰트로 대체합니다. |
+
+이미지나 폰트가 없거나 형식이 맞지 않으면 프로그램은 색상·기본 폰트로 대체해 실행하고 화면에 자산 오류를 표시합니다. 타일 이미지 decode와 화면 출력은 모두 Pygame 메인 스레드에서 수행합니다.
 
 ## 확인할 서버 계약
 
@@ -107,7 +132,7 @@ python client/main.py
 | `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
 | `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
-| `WS /ws/play/` | 로그인 세션으로 연결하고 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}` 전송. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
+| `WS /ws/play/` | 로그인 세션으로 연결하고, 연결 직후 안전하게 검증된 player state를 받습니다. 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}`를 전송하고 응답의 `command_id`를 확인합니다. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
 | `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
 
 실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않고 전체 4초, 연결/읽기 2초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.

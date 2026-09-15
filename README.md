@@ -2,7 +2,7 @@
 
 Python 3.12, pygame-ce, aiohttp와 표준 라이브러리로 동작하는 데스크톱 클라이언트입니다. Django 세션 로그인, 자기 player 상태 조회, WebSocket 게임 명령(이동·채굴)을 지원하며 게임 규칙, Django view, DB는 변경하지 않습니다. 브라우저/WebView를 사용하지 않습니다.
 
-로그인 후에는 20×15 타일 마을, 길, 나무·집 장식, 플레이어 스프라이트를 Pygame 화면에 표시합니다. 서버가 반환한 좌표와 코인·버전 정보가 화면과 읽기 전용 state 패널에 반영됩니다.
+로그인 후에는 20×15 타일 마을, 길, 나무·집 장식, 플레이어 스프라이트를 Pygame 화면에 표시합니다. WebSocket으로 받은 같은 방의 접속자 목록과 위치 변경을 실시간으로 반영하며, 내 플레이어는 초록색 표식, 다른 플레이어는 노란색 표식과 player ID로 구분합니다.
 
 ## 현재 기능
 
@@ -11,6 +11,7 @@ Python 3.12, pygame-ce, aiohttp와 표준 라이브러리로 동작하는 데스
 | 이동 | 방향키 또는 화면의 방향 버튼 | 서버의 이동 규칙과 맵 경계 검증을 따릅니다. |
 | 코인 채굴 | `Z` 키 또는 **Z 채굴** 버튼 | 서버가 허용하는 채굴 지점 `(2, 2)`에서만 성공합니다. |
 | 상태 조회 | **새로고침** | `GET /api/player/`로 자기 상태를 다시 가져옵니다. |
+| 같은 방 플레이어 | 자동 갱신 | WebSocket snapshot과 상태 방송을 계속 받아 접속·퇴장·이동을 표시합니다. |
 | 접속 해제 | **로그아웃** | WebSocket을 먼저 닫은 뒤 Django 로그아웃을 요청합니다. |
 
 이동과 채굴은 한 명령의 응답을 기다린 뒤 다음 명령을 보내며, 두 종류를 합쳐 0.2초에 한 번만 전송합니다. 명령 버튼과 상태 문구에 `요청 중`·`완료`·`실패`가 표시됩니다.
@@ -132,7 +133,7 @@ python client/main.py
 | `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
 | `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
-| `WS /ws/play/` | 로그인 세션으로 연결하고, 연결 직후 안전하게 검증된 player state를 받습니다. 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}`를 전송하고 응답의 `command_id`를 확인합니다. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
+| `WS /ws/play/` | 로그인 세션으로 연결하고, 최초 player state와 `{type:"snapshot",players:[...]}` 및 방의 player state 방송을 계속 받습니다. 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}`를 전송합니다. 방송은 즉시 반영하고, 자기 player의 응답 중 일치하는 `command_id`만 명령 완료로 처리합니다. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
 | `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
 
 실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않고 전체 4초, 연결/읽기 2초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.
@@ -149,6 +150,6 @@ API 패널은 최근 `GET /api/player/`의 경로, status, 위 여섯 필드로 
 python -m unittest discover -s tests -v
 ```
 
-모의 서버에서 로그인 순서, 로컬 쿠키 유지, WebSocket 이동, 공유 명령 제한, 로그인 포커스 이동 차단, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 실제 Django 서버 통합은 별도 확인이 필요합니다.
+모의 서버에서 로그인 순서, 로컬 쿠키 유지, WebSocket snapshot·다른 플레이어 방송·명령 응답 매칭, 공유 명령 제한, 로그인 포커스 이동 차단, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 실제 Django 서버 통합은 별도 확인이 필요합니다.
 
 구현 참고: [aiohttp ClientSession / CookieJar](https://docs.aiohttp.org/en/stable/client_reference.html), [pygame-ce 텍스트 입력](https://pyga.me/docs/ref/key.html).

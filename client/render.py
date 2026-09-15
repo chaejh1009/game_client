@@ -172,9 +172,18 @@ class Renderer:
         for x, y in ((7, 6), (14, 8)):
             self._draw_sprite_at_tile('house', x, y, (156, 91, 69))
 
-        player = state.player
-        if player is not None:
-            self._draw_sprite_at_tile('hero', player['x'], player['y'], (76, 106, 190))
+        own_id = state.player['player_id'] if state.player is not None else None
+        players = sorted(state.players.values(), key=lambda item: item['player_id'] == own_id)
+        for player in players:
+            is_own = player['player_id'] == own_id
+            fallback = (76, 106, 190) if is_own else (214, 116, 86)
+            self._draw_sprite_at_tile('hero', player['x'], player['y'], fallback)
+            tile_x = self.map_rect.x + player['x'] * TILE_SIZE
+            tile_y = self.map_rect.y + player['y'] * TILE_SIZE
+            marker = ACCENT if is_own else PENDING
+            pygame.draw.circle(self.screen, marker, (tile_x + TILE_SIZE - 5, tile_y + 5), 4)
+            label = self.small.render(str(player['player_id']), True, marker)
+            self.screen.blit(label, (tile_x + 2, tile_y + 1))
         pygame.draw.rect(self.screen, (10, 18, 24), self.map_rect, width=2)
         self.screen.set_clip(old_clip)
 
@@ -220,6 +229,10 @@ class Renderer:
         self._draw_map(state)
         self._draw_slot('village-board')
         self._draw_slot('lobby-banner')
+        self.wrapped(f'접속 중인 플레이어 {len(state.players)}명',
+                     self.slots['lobby-banner'].x + 12,
+                     self.slots['lobby-banner'].y + 12,
+                     self.slots['lobby-banner'].width - 24, color=INK)
         self._draw_commands(state)
         self._draw_command_status(state)
         self._draw_api_panel(state)

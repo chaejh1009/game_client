@@ -72,6 +72,7 @@ class Result:
     kind: str
     message: str = ''
     player: dict | None = None
+    players: tuple = ()
     status: int | None = None
     needs_login: bool = False
     direction: str = ''
@@ -87,6 +88,7 @@ class State:
     closing: bool = False
     message: str = '교실 서버 계정으로 접속하세요.'
     player: dict | None = None
+    players: dict = field(default_factory=dict)
     api_status: int | None = None
     api_json: dict | None = None
     command_pending: bool = False
@@ -120,6 +122,7 @@ class State:
         self.authenticated = False
         self.username = self.password = ''
         self.player = self.api_json = None
+        self.players.clear()
         self.api_status = None
         self.command_pending = False
         self.selected_action = ''
@@ -133,6 +136,20 @@ class State:
         if result.kind == 'api':
             self.api_status, self.api_json = result.status, result.player
             return
+        if result.kind == 'snapshot':
+            self.players = {player['player_id']: player for player in result.players}
+            if self.player is not None:
+                current = self.players.get(self.player['player_id'])
+                if current is not None:
+                    self.player = current
+                else:
+                    self.players[self.player['player_id']] = self.player
+            return
+        if result.kind == 'state':
+            self.players[result.player['player_id']] = result.player
+            if self.player is not None and result.player['player_id'] == self.player['player_id']:
+                self.player = result.player
+            return
         if result.kind in ('command', 'command_error'):
             self.command_pending = False
             self.command_status = 'success' if result.kind == 'command' else 'error'
@@ -144,8 +161,10 @@ class State:
         if result.kind == 'player':
             self.authenticated = True
             self.player = result.player
+            self.players[result.player['player_id']] = result.player
         elif result.kind == 'command':
             self.player = result.player
+            self.players[result.player['player_id']] = result.player
         elif result.kind == 'logged_out' or result.needs_login:
             self.clear_account()
         elif result.kind == 'fatal':

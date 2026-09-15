@@ -15,6 +15,7 @@ from network import NetworkWorker
 from state import Request, State
 
 PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
+OTHER = dict(player_id=8, room_id=2, x=9, y=10, coins=1, version=2)
 
 class ContractTests(unittest.TestCase):
     @classmethod
@@ -32,6 +33,7 @@ class ContractTests(unittest.TestCase):
                 ws = web.WebSocketResponse()
                 await ws.prepare(req)
                 await ws.send_json({**PLAYER, 'type': 'state'})
+                await ws.send_json({'type': 'snapshot', 'players': [PLAYER, OTHER]})
                 async for message in ws:
                     command = message.json()
                     cls.commands.append(command)
@@ -46,6 +48,10 @@ class ContractTests(unittest.TestCase):
                     elif command['type'] == 'gather':
                         assert 'direction' not in command
                         state['coins'] = PLAYER['coins'] + 1
+                    # Room broadcasts can arrive between a command and its acknowledgement.
+                    await ws.send_json({**OTHER, 'type': 'state',
+                                        'x': OTHER['x'] + 1,
+                                        'command_id': 'another-player-command'})
                     await ws.send_json(state)
                 return ws
             if req.path == '/accounts/login/' and req.method == 'GET':
@@ -129,8 +135,16 @@ class ContractTests(unittest.TestCase):
         while True:
             result = self.worker.results.get(timeout=6)
             results.append(result)
-            if result.kind != 'api':
+            if result.kind not in ('api', 'snapshot', 'state'):
                 return result, results
+
+    def result_kind(self, kind):
+        seen = []
+        while True:
+            result = self.worker.results.get(timeout=6)
+            seen.append(result)
+            if result.kind == kind:
+                return result, seen
 
     def login(self):
         request = Request('login', 'student', 'test-only')
@@ -160,14 +174,21 @@ class ContractTests(unittest.TestCase):
 
         self.assertEqual(self.login()[0].kind, 'player')
         self.worker.submit(Request('command', direction='up'))
-        result = self.worker.results.get(timeout=5)
+        result, updates = self.result_kind('command')
         self.assertEqual(result.kind, 'command')
         self.assertEqual(result.direction, 'up')
         self.assertEqual(result.player['y'], PLAYER['y'] - 1)
         self.assertEqual(self.commands[0]['type'], 'move')
+        self.assertTrue(any(item.kind == 'snapshot' for item in updates))
+        other_update = next(item for item in updates
+                            if item.kind == 'state' and item.player['player_id'] == OTHER['player_id'])
+        self.assertEqual(other_update.player['x'], OTHER['x'] + 1)
 
-        state.apply(result)
+        for update in updates:
+            state.apply(update)
         self.assertEqual(state.command_status, 'success')
+        self.assertEqual(state.player['y'], PLAYER['y'] - 1)
+        self.assertEqual(state.players[OTHER['player_id']]['x'], OTHER['x'] + 1)
         self.assertFalse(state.begin_command('move', 10.1, 'right'))  # Shared rate limit.
         self.assertTrue(state.begin_command('move', 10.21, 'right'))
 
@@ -178,7 +199,7 @@ class ContractTests(unittest.TestCase):
 
         self.assertEqual(self.login()[0].kind, 'player')
         self.worker.submit(Request('command', action='gather'))
-        result = self.worker.results.get(timeout=5)
+        result, _ = self.result_kind('command')
         self.assertEqual(result.kind, 'command')
         self.assertEqual(result.action, 'gather')
         self.assertEqual(result.player['coins'], PLAYER['coins'] + 1)

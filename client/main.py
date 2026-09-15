@@ -5,6 +5,7 @@ from queue import Empty
 import time
 import pygame
 from network import NetworkWorker
+from panels import AnalyticsPanelState
 from render import Renderer
 from state import Config, Request, State
 
@@ -19,6 +20,7 @@ def main():
     pygame.font.init()
     worker = None
     state = State()
+    analytics_panel = AnalyticsPanelState()
     try:
         renderer = Renderer(config)
         worker = NetworkWorker(config.server_base_url)
@@ -29,13 +31,15 @@ def main():
         def submit(kind):
             if state.busy or state.closing:
                 return
-            if kind in ('player', 'logout') and state.delivery_pending:
+            if kind in ('player', 'logout') and (state.delivery_pending
+                                                  or analytics_panel.pending):
                 return
             if kind == 'login':
                 if not state.username.strip() or not state.password:
                     state.message = '사용자명과 비밀번호를 입력하세요.'
                     return
                 request = Request(kind, state.username.strip(), state.password)
+                analytics_panel.clear()
                 state.password = ''  # Drop the input field immediately; never persist it.
             else:
                 request = Request(kind)
@@ -51,6 +55,12 @@ def main():
         def request_delivery():
             if state.begin_delivery(time.monotonic()):
                 worker.submit(Request('delivery'))
+
+        def toggle_analytics():
+            if analytics_panel.visible:
+                analytics_panel.hide()
+            elif analytics_panel.begin(state.authenticated, state.closing):
+                worker.submit(Request('analytics'))
 
         key_directions = {
             pygame.K_UP: 'up',
@@ -70,6 +80,7 @@ def main():
                     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                         names = (('up', 'down', 'left', 'right', 'gather', 'refresh',
                                   'logout', 'delivery')
+                                 + (('analytics',) if state.authenticated else ())
                                  if state.authenticated else ('username', 'password', 'login'))
                         for name in names:
                             if renderer.controls[name].collidepoint(event.pos):
@@ -81,6 +92,8 @@ def main():
                                     request_command('gather')
                                 elif name == 'delivery':
                                     request_delivery()
+                                elif name == 'analytics':
+                                    toggle_analytics()
                                 else:
                                     submit('player' if name == 'refresh' else name)
                     elif event.type == pygame.KEYDOWN:
@@ -103,7 +116,12 @@ def main():
                         setattr(state, state.focus, value[:limit])
             while True:
                 try:
-                    state.apply(worker.results.get_nowait())
+                    result = worker.results.get_nowait()
+                    handled = analytics_panel.apply(result)
+                    if not handled or result.needs_login:
+                        state.apply(result)
+                    if result.kind == 'logged_out' or result.needs_login:
+                        analytics_panel.clear()
                 except Empty:
                     break
             if state.closing and not worker.thread.is_alive():
@@ -111,7 +129,7 @@ def main():
                 break
             if not state.authenticated and not state.busy and not state.closing:
                 pygame.key.set_text_input_rect(renderer.controls[state.focus])
-            renderer.draw(state)
+            renderer.draw(state, analytics_panel)
             clock.tick(60)
     finally:
         state.password = ''

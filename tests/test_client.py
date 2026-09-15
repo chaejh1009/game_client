@@ -12,6 +12,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
 from aiohttp import web
 from network import NetworkWorker
+from panels import AnalyticsPanelState
 from state import Request, Result, State
 
 PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
@@ -105,6 +106,35 @@ class ContractTests(unittest.TestCase):
                     'event_count': 12,
                     'pending_publish_count': 3,
                     'username': 'must-not-display',
+                    'csrfToken': 'must-not-display',
+                })
+            if req.path == '/api/analytics/':
+                assert req.cookies.get('sessionid')
+                assert req.cookies['csrftoken'] == 'rotated'
+                if cls.mode == 'slow_analytics':
+                    await asyncio.sleep(0.25)
+                if cls.mode == 'analytics_false':
+                    return web.json_response({
+                        'available': False,
+                        'reason': 'summary_not_created',
+                        'event_count': 0,
+                    })
+                if cls.mode == 'analytics_html':
+                    return web.Response(text='<html>private analytics</html>',
+                                        content_type='text/html')
+                if cls.mode == 'analytics_302':
+                    return web.Response(status=302, headers={'Location': '/trap'})
+                return web.json_response({
+                    'available': True,
+                    'schema_version': 1,
+                    'generated_at': '2026-09-15T03:04:05+00:00',
+                    'event_count': 15,
+                    'by_action': [
+                        {'event_type': 'player.gathered', 'count': 4, 'secret': 'hidden'},
+                        {'event_type': 'player.moved', 'count': 11},
+                    ],
+                    'by_room': [{'room_id': 'room-01', 'count': 15}],
+                    'source': 'must-not-display',
                     'csrfToken': 'must-not-display',
                 })
             raise AssertionError('Unexpected route / redirect followed')
@@ -283,6 +313,75 @@ class ContractTests(unittest.TestCase):
                 self.assertTrue(result.needs_login)
                 self.assertIn('로그인이 필요합니다', result.message)
                 self.assertNotIn(('GET', '/trap'), self.calls)
+
+    def test_analytics_true_false_allowlist_and_player_is_unchanged(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.assertNotIn(('GET', '/api/analytics/'), self.calls)
+        player_state = State(authenticated=True, player=PLAYER.copy())
+        original_player = player_state.player.copy()
+        panel = AnalyticsPanelState()
+        self.assertTrue(panel.begin(True, False))
+
+        self.worker.submit(Request('analytics'))
+        result, results = self.results_until('analytics')
+        api_result = next(item for item in results
+                          if item.kind == 'api' and item.api_path == '/api/analytics/')
+        player_state.apply(api_result)
+        self.assertTrue(panel.apply(result))
+        self.assertTrue(panel.available)
+        self.assertEqual(panel.event_count, 15)
+        self.assertEqual(panel.by_action[0], {
+            'event_type': 'player.gathered', 'count': 4,
+        })
+        self.assertEqual(panel.by_room[0], {'room_id': 'room-01', 'count': 15})
+        self.assertEqual(panel.generated_at, '2026-09-15T03:04:05+00:00')
+        self.assertEqual(player_state.api_path, '/api/analytics/')
+        self.assertEqual(player_state.api_status, 200)
+        self.assertEqual(player_state.player, original_player)
+        self.assertNotIn('must-not-display', repr(results))
+        self.assertNotIn('hidden', repr(results))
+
+        panel.hide()
+        self.assertTrue(panel.begin(True, False))
+        type(self).mode = 'analytics_false'
+        self.worker.submit(Request('analytics'))
+        result, results = self.results_until('analytics')
+        self.assertTrue(panel.apply(result))
+        self.assertFalse(panel.available)
+        self.assertIsNone(panel.event_count)
+        self.assertEqual(panel.message, '아직 첫 집계가 없습니다')
+        api_result = next(item for item in results
+                          if item.kind == 'api' and item.api_path == '/api/analytics/')
+        self.assertEqual(api_result.player, {'available': False})
+
+    def test_analytics_rejects_html_and_redirect(self):
+        for mode in ('analytics_html', 'analytics_302'):
+            with self.subTest(mode=mode):
+                type(self).mode = 'ok'
+                self.assertEqual(self.login()[0].kind, 'player')
+                type(self).mode = mode
+                self.worker.submit(Request('analytics'))
+                result, results = self.results_until('analytics_error')
+                if mode == 'analytics_html':
+                    self.assertIn('JSON 응답이 아닙니다', result.message)
+                    self.assertNotIn('<html>', repr(results))
+                    self.worker.submit(Request('logout'))
+                    self.assertEqual(self.result()[0].kind, 'logged_out')
+                else:
+                    self.assertTrue(result.needs_login)
+                    self.assertIn('로그인이 필요합니다', result.message)
+                    self.assertNotIn(('GET', '/trap'), self.calls)
+
+    def test_analytics_read_does_not_block_movement(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        type(self).mode = 'slow_analytics'
+        self.worker.submit(Request('analytics'))
+        self.worker.submit(Request('command', direction='right'))
+        command, results = self.results_until('command')
+        self.assertEqual(command.player['x'], PLAYER['x'] + 1)
+        self.assertFalse(any(result.kind == 'command_error' for result in results))
+        analytics, _ = self.results_until('analytics')
+        self.assertEqual(analytics.player['event_count'], 15)
 
     def test_login_focus_blocks_movement(self):
         state = State(focus='username')

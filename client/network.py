@@ -65,6 +65,7 @@ class NetworkWorker:
                                          trust_env=False) as self._session:
             active = None
             delivery_task = None
+            analytics_task = None
             try:
                 while True:
                     if active is not None and active.done():
@@ -73,6 +74,9 @@ class NetworkWorker:
                     if delivery_task is not None and delivery_task.done():
                         await delivery_task
                         delivery_task = None
+                    if analytics_task is not None and analytics_task.done():
+                        await analytics_task
+                        analytics_task = None
                     try:
                         request = self.requests.get_nowait()
                     except Empty:
@@ -86,6 +90,13 @@ class NetworkWorker:
                         else:
                             self.results.put(Result(
                                 'delivery_error', '이벤트 전달 상태 요청이 이미 진행 중입니다.'))
+                        continue
+                    if request.kind == 'analytics':
+                        if analytics_task is None:
+                            analytics_task = asyncio.create_task(self._dispatch(request))
+                        else:
+                            self.results.put(Result(
+                                'analytics_error', '통계 읽기 요청이 이미 진행 중입니다.'))
                         continue
                     if active is None:
                         active = asyncio.create_task(self._dispatch(request))
@@ -102,6 +113,9 @@ class NetworkWorker:
                 if delivery_task is not None:
                     delivery_task.cancel()
                     await asyncio.gather(delivery_task, return_exceptions=True)
+                if analytics_task is not None:
+                    analytics_task.cancel()
+                    await asyncio.gather(analytics_task, return_exceptions=True)
                 await self._close_ws()
                 jar.clear()
                 self._token = ''
@@ -212,7 +226,8 @@ class NetworkWorker:
     async def _http(self, method, path, *, payload=None, empty_ok=False):
         inspect_player = method == 'GET' and path == '/api/player/'
         inspect_delivery = method == 'GET' and path == '/api/delivery/'
-        inspect_api = inspect_player or inspect_delivery
+        inspect_analytics = method == 'GET' and path == '/api/analytics/'
+        inspect_api = inspect_player or inspect_delivery or inspect_analytics
         status, safe = None, None
         headers = {'Accept': 'application/json'}
         if method == 'POST':
@@ -270,10 +285,56 @@ class NetworkWorker:
                         validated[key] = value
                     safe = validated
                     return safe
+                if inspect_analytics:
+                    available = data.get('available')
+                    if type(available) is not bool:
+                        raise Failure('analytics 응답의 available을 확인하세요.')
+                    if not available:
+                        safe = {'available': False}
+                        return safe
+                    schema_version = data.get('schema_version')
+                    generated_at = data.get('generated_at')
+                    event_count = data.get('event_count')
+                    if type(schema_version) is not int or schema_version < 1:
+                        raise Failure('analytics 응답의 schema_version을 확인하세요.')
+                    if not isinstance(generated_at, str) or not generated_at or len(generated_at) > 120:
+                        raise Failure('analytics 응답의 generated_at을 확인하세요.')
+                    if type(event_count) is not int or event_count < 0:
+                        raise Failure('analytics 응답의 event_count를 확인하세요.')
+                    by_action = self._validate_analytics_rows(
+                        data.get('by_action'), 'event_type', 'by_action')
+                    by_room = self._validate_analytics_rows(
+                        data.get('by_room'), 'room_id', 'by_room')
+                    safe = {
+                        'available': True,
+                        'schema_version': schema_version,
+                        'generated_at': generated_at,
+                        'event_count': event_count,
+                        'by_action': list(by_action),
+                        'by_room': list(by_room),
+                    }
+                    return safe
                 return data
         finally:
             if inspect_api:
                 self.results.put(Result('api', status=status, player=safe, api_path=path))
+
+    def _validate_analytics_rows(self, rows, label_key, field_name):
+        if not isinstance(rows, list) or len(rows) > 100:
+            raise Failure(f'analytics 응답의 {field_name} 형식을 확인하세요.')
+        validated = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise Failure(f'analytics 응답의 {field_name} 행을 확인하세요.')
+            label = row.get(label_key)
+            count = row.get('count')
+            label_ok = (isinstance(label, str) and bool(label) and len(label) <= 80)
+            if label_key == 'room_id':
+                label_ok = label_ok or type(label) is int
+            if not label_ok or type(count) is not int or count < 0:
+                raise Failure(f'analytics 응답의 {field_name} 행을 확인하세요.')
+            validated.append({label_key: label, 'count': count})
+        return tuple(validated)
 
     def _validate_player(self, data):
         if not isinstance(data, dict):
@@ -435,6 +496,12 @@ class NetworkWorker:
                 delivery = await self._http('GET', '/api/delivery/')
                 self.results.put(Result('delivery', '이벤트 전달 상태를 갱신했습니다.',
                                         delivery=delivery))
+            elif request.kind == 'analytics':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                analytics = await self._http('GET', '/api/analytics/')
+                self.results.put(Result('analytics', '저장된 통계를 읽었습니다.',
+                                        player=analytics))
             elif request.kind == 'logout':
                 try:
                     await self._close_ws()
@@ -469,6 +536,8 @@ class NetworkWorker:
                 kind = 'command_error'
             elif request.kind == 'delivery':
                 kind = 'delivery_error'
+            elif request.kind == 'analytics':
+                kind = 'analytics_error'
             else:
                 kind = 'error'
             self.results.put(Result(kind, message, needs_login=needs_login,

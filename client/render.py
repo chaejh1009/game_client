@@ -127,8 +127,6 @@ class Renderer:
     def _draw_slot(self, name):
         rect = self.slots[name]
         pygame.draw.rect(self.screen, CARD, rect, border_radius=10)
-        label = self.small.render('소식 준비 중', True, INK)
-        self.screen.blit(label, label.get_rect(center=rect.center))
 
     def _draw_tile(self, name, x, y, fallback):
         rect = pygame.Rect(self.map_rect.x + x * TILE_SIZE,
@@ -172,7 +170,7 @@ class Renderer:
         for x, y in ((7, 6), (14, 8)):
             self._draw_sprite_at_tile('house', x, y, (156, 91, 69))
 
-        own_id = state.player['player_id'] if state.player is not None else None
+        own_id = state.my_player_id
         players = sorted(state.players.values(), key=lambda item: item['player_id'] == own_id)
         for player in players:
             is_own = player['player_id'] == own_id
@@ -181,6 +179,9 @@ class Renderer:
             tile_x = self.map_rect.x + player['x'] * TILE_SIZE
             tile_y = self.map_rect.y + player['y'] * TILE_SIZE
             marker = ACCENT if is_own else PENDING
+            outline = pygame.Rect(tile_x + 2, tile_y + 2, TILE_SIZE - 4, TILE_SIZE - 4)
+            pygame.draw.rect(self.screen, marker, outline, width=3 if is_own else 1,
+                             border_radius=5)
             pygame.draw.circle(self.screen, marker, (tile_x + TILE_SIZE - 5, tile_y + 5), 4)
             label = self.small.render(str(player['player_id']), True, marker)
             self.screen.blit(label, (tile_x + 2, tile_y + 1))
@@ -208,15 +209,18 @@ class Renderer:
 
     def _draw_api_panel(self, state):
         pygame.draw.rect(self.screen, CARD, self.api_panel, border_radius=10)
+        previous = self.screen.get_clip()
+        self.screen.set_clip(self.api_panel.inflate(-8, -8))
         x, y = self.api_panel.x + 12, self.api_panel.y + 10
         self.text('서버 state', (x, y), ACCENT, self.small)
         self.text('status: ' + str(state.api_status or '—'), (x, y + 24), MUTED, self.small)
-        data = (json.dumps(state.player, ensure_ascii=False)
-                if state.player is not None else '아직 state가 없습니다.')
+        data = (json.dumps(state.api_json, ensure_ascii=False)
+                if state.api_json is not None else '아직 API 응답이 없습니다.')
         self.wrapped(data, x, y + 48, self.api_panel.width - 24, color=INK)
         if self.asset_errors:
             self.wrapped(' · '.join(self.asset_errors), x, self.api_panel.bottom - 34,
                          self.api_panel.width - 24, color=ERROR)
+        self.screen.set_clip(previous)
 
     def _draw_game(self, state):
         self.text('작은 마을', (24, 24), font=self.title)
@@ -229,10 +233,22 @@ class Renderer:
         self._draw_map(state)
         self._draw_slot('village-board')
         self._draw_slot('lobby-banner')
-        self.wrapped(f'접속 중인 플레이어 {len(state.players)}명',
-                     self.slots['lobby-banner'].x + 12,
-                     self.slots['lobby-banner'].y + 12,
-                     self.slots['lobby-banner'].width - 24, color=INK)
+        room = state.room_id if state.room_id is not None else '—'
+        stale = '' if state.ws_connected else ' · 마지막 정보'
+        room_panel = self.slots['village-board']
+        self.text(f'방 {room}', (room_panel.x + 12, room_panel.y + 10), ACCENT, self.small)
+        self.wrapped(f'온라인 {state.online_count}명{stale}', room_panel.x + 12,
+                     room_panel.y + 38, room_panel.width - 24,
+                     color=INK if state.ws_connected else PENDING)
+        ws_panel = self.slots['lobby-banner']
+        previous = self.screen.get_clip()
+        self.screen.set_clip(ws_panel.inflate(-8, -8))
+        self.text('WS 메시지', (ws_panel.x + 12, ws_panel.y + 10), ACCENT, self.small)
+        ws_data = (json.dumps(state.ws_json, ensure_ascii=False)
+                   if state.ws_json is not None else '아직 WS 메시지가 없습니다.')
+        self.wrapped(ws_data, ws_panel.x + 12, ws_panel.y + 34,
+                     ws_panel.width - 24, color=INK)
+        self.screen.set_clip(previous)
         self._draw_commands(state)
         self._draw_command_status(state)
         self._draw_api_panel(state)

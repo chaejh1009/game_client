@@ -73,6 +73,7 @@ class Result:
     message: str = ''
     player: dict | None = None
     players: tuple = ()
+    ws_json: dict | None = None
     status: int | None = None
     needs_login: bool = False
     direction: str = ''
@@ -89,6 +90,11 @@ class State:
     message: str = '교실 서버 계정으로 접속하세요.'
     player: dict | None = None
     players: dict = field(default_factory=dict)
+    my_player_id: int | str | None = None
+    room_id: int | str | None = None
+    online_count: int = 0
+    ws_connected: bool = False
+    ws_json: dict | None = None
     api_status: int | None = None
     api_json: dict | None = None
     command_pending: bool = False
@@ -96,6 +102,24 @@ class State:
     selected_direction: str = ''
     command_status: str = ''
     last_command_at: float = -1.0
+
+    def __post_init__(self):
+        if self.player is not None:
+            self.my_player_id = self.player['player_id']
+            self.room_id = self.player['room_id']
+            self.players[self.my_player_id] = self.player
+            self.online_count = len(self.players)
+
+    def _merge_player(self, player):
+        player_id = player['player_id']
+        previous = self.players.get(player_id)
+        if previous is not None and player['version'] < previous['version']:
+            return previous
+        self.players[player_id] = player
+        if player_id == self.my_player_id:
+            self.player = player
+        self.online_count = len(self.players)
+        return player
 
     def begin_command(self, action, now, direction=''):
         if action == 'move' and direction not in ('up', 'down', 'left', 'right'):
@@ -123,6 +147,10 @@ class State:
         self.username = self.password = ''
         self.player = self.api_json = None
         self.players.clear()
+        self.my_player_id = self.room_id = None
+        self.online_count = 0
+        self.ws_connected = False
+        self.ws_json = None
         self.api_status = None
         self.command_pending = False
         self.selected_action = ''
@@ -136,19 +164,34 @@ class State:
         if result.kind == 'api':
             self.api_status, self.api_json = result.status, result.player
             return
+        if result.ws_json is not None:
+            self.ws_json = result.ws_json
         if result.kind == 'snapshot':
-            self.players = {player['player_id']: player for player in result.players}
-            if self.player is not None:
-                current = self.players.get(self.player['player_id'])
-                if current is not None:
-                    self.player = current
-                else:
-                    self.players[self.player['player_id']] = self.player
+            merged = {}
+            for player in result.players:
+                previous = self.players.get(player['player_id'])
+                merged[player['player_id']] = (previous if previous is not None
+                                                and previous['version'] > player['version']
+                                                else player)
+            self.players = merged
+            own = self.players.get(self.my_player_id)
+            if own is not None:
+                self.player = own
+                self.room_id = own['room_id']
+            elif result.players:
+                self.room_id = result.players[0]['room_id']
+            self.online_count = len(self.players)
+            self.ws_connected = True
             return
         if result.kind == 'state':
-            self.players[result.player['player_id']] = result.player
-            if self.player is not None and result.player['player_id'] == self.player['player_id']:
-                self.player = result.player
+            self._merge_player(result.player)
+            self.ws_connected = True
+            return
+        if result.kind == 'ws_event':
+            return
+        if result.kind == 'ws_disconnected':
+            self.ws_connected = False
+            self.message = result.message
             return
         if result.kind in ('command', 'command_error'):
             self.command_pending = False
@@ -160,11 +203,15 @@ class State:
         self.message = result.message
         if result.kind == 'player':
             self.authenticated = True
-            self.player = result.player
-            self.players[result.player['player_id']] = result.player
+            if self.my_player_id is None:
+                self.my_player_id = result.player['player_id']
+            if result.player['player_id'] == self.my_player_id:
+                self.room_id = result.player['room_id']
+                self._merge_player(result.player)
+            if result.ws_json is not None:
+                self.ws_connected = True
         elif result.kind == 'command':
-            self.player = result.player
-            self.players[result.player['player_id']] = result.player
+            self._merge_player(result.player)
         elif result.kind == 'logged_out' or result.needs_login:
             self.clear_account()
         elif result.kind == 'fatal':

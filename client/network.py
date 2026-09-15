@@ -130,6 +130,19 @@ class NetworkWorker:
             raise Failure('게임 snapshot에 중복 player가 있습니다.')
         return players
 
+    def _safe_state_message(self, player, command_id=None):
+        safe = {'type': 'state', **player}
+        if isinstance(command_id, str) and len(command_id) <= 80:
+            safe['command_id'] = command_id
+        return safe
+
+    def _safe_error_message(self, data):
+        safe = {'type': 'error', 'code': str(data.get('code', 'unknown'))[:80]}
+        command_id = data.get('command_id')
+        if isinstance(command_id, str) and len(command_id) <= 80:
+            safe['command_id'] = command_id
+        return safe
+
     def _command_failure(self, data):
         messages = {
             'too_fast': '이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.',
@@ -146,16 +159,20 @@ class NetworkWorker:
                 data = self._decode_ws_message(message)
                 kind = data.get('type')
                 if kind == 'snapshot':
-                    self.results.put(Result('snapshot', players=self._validate_snapshot(data)))
+                    players = self._validate_snapshot(data)
+                    safe = {'type': 'snapshot', 'players': list(players)}
+                    self.results.put(Result('snapshot', players=players, ws_json=safe))
                     continue
                 command_id = data.get('command_id')
                 if kind == 'error':
+                    self.results.put(Result('ws_event', ws_json=self._safe_error_message(data)))
                     if command_id == self._command_id and self._command_waiter is not None:
                         if not self._command_waiter.done():
                             self._command_waiter.set_exception(self._command_failure(data))
                     continue
                 player = self._validate_player(data)
-                self.results.put(Result('state', player=player))
+                safe = self._safe_state_message(player, command_id)
+                self.results.put(Result('state', player=player, ws_json=safe))
                 if command_id == self._command_id and self._command_waiter is not None:
                     if player['player_id'] != self._player_id:
                         if not self._command_waiter.done():
@@ -174,6 +191,9 @@ class NetworkWorker:
         finally:
             if self._command_waiter is not None and not self._command_waiter.done():
                 self._command_waiter.set_exception(Failure('게임 연결이 종료되었습니다.'))
+            if self._ws_reader is asyncio.current_task():
+                self.results.put(Result('ws_disconnected',
+                                        '게임 연결이 끊겼습니다. 온라인 정보는 마지막 수신 상태입니다.'))
 
     async def _http(self, method, path, *, payload=None, empty_ok=False):
         inspect_player = method == 'GET' and path == '/api/player/'
@@ -251,7 +271,8 @@ class NetworkWorker:
         data = self._decode_ws_message(message)
         if data.get('type') == 'error':
             raise self._command_failure(data)
-        return self._validate_player(data)
+        player = self._validate_player(data)
+        return player, self._safe_state_message(player, data.get('command_id'))
 
     async def _connect_ws(self):
         parts = urlsplit(self.origin)
@@ -367,12 +388,13 @@ class NetworkWorker:
                     username = password = ''
                 self._authenticated = True
                 player = await self._http('GET', '/api/player/')
-                ws_player = await self._connect_ws()
+                ws_player, ws_json = await self._connect_ws()
                 if ws_player['player_id'] != player['player_id']:
                     raise Failure('HTTP와 게임 연결의 player가 일치하지 않습니다.')
                 player = ws_player
                 self._player_id = player['player_id']
-                self.results.put(Result('player', '마을 준비 중', player=player))
+                self.results.put(Result('player', '마을 준비 중', player=player,
+                                        ws_json=ws_json))
                 self._ws_reader = asyncio.create_task(self._listen_ws())
             elif request.kind == 'player':
                 if not self._authenticated:

@@ -12,7 +12,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
 from aiohttp import web
 from network import NetworkWorker
-from state import Request, State
+from state import Request, Result, State
 
 PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
 OTHER = dict(player_id=8, room_id=2, x=9, y=10, coins=1, version=2)
@@ -33,7 +33,10 @@ class ContractTests(unittest.TestCase):
                 ws = web.WebSocketResponse()
                 await ws.prepare(req)
                 await ws.send_json({**PLAYER, 'type': 'state'})
-                await ws.send_json({'type': 'snapshot', 'players': [PLAYER, OTHER]})
+                await ws.send_json({'type': 'snapshot', 'players': [
+                    {**PLAYER, 'username': 'must-not-display'},
+                    {**OTHER, 'csrfToken': 'must-not-display'},
+                ]})
                 async for message in ws:
                     command = message.json()
                     cls.commands.append(command)
@@ -183,9 +186,12 @@ class ContractTests(unittest.TestCase):
         other_update = next(item for item in updates
                             if item.kind == 'state' and item.player['player_id'] == OTHER['player_id'])
         self.assertEqual(other_update.player['x'], OTHER['x'] + 1)
+        self.assertNotIn('must-not-display', repr(updates))
 
         for update in updates:
             state.apply(update)
+            if update is other_update:
+                self.assertTrue(state.command_pending)
         self.assertEqual(state.command_status, 'success')
         self.assertEqual(state.player['y'], PLAYER['y'] - 1)
         self.assertEqual(state.players[OTHER['player_id']]['x'], OTHER['x'] + 1)
@@ -212,6 +218,36 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(state.command_pending)
         self.assertIn('로그인 입력 중', state.message)
 
+    def test_player_versions_snapshot_removal_and_disconnect_label(self):
+        state = State()
+        state.apply(Result('player', player=PLAYER,
+                           ws_json={'type': 'state', **PLAYER}))
+        self.assertEqual(state.my_player_id, PLAYER['player_id'])
+
+        newer_other = {**OTHER, 'x': 12, 'version': 5, 'coins': 999}
+        state.apply(Result('state', player=newer_other))
+        state.apply(Result('snapshot', players=(
+            {**PLAYER, 'coins': 999, 'version': 5},
+            {**OTHER, 'x': 2, 'version': 4},
+        )))
+        self.assertEqual(state.player['coins'], PLAYER['coins'])
+        self.assertEqual(state.players[OTHER['player_id']], newer_other)
+
+        state.apply(Result('state', player={**OTHER, 'x': 1, 'version': 4}))
+        self.assertEqual(state.players[OTHER['player_id']]['x'], 12)
+        state.apply(Result('state', player={**OTHER, 'x': 13, 'version': 5}))
+        self.assertEqual(state.players[OTHER['player_id']]['x'], 13)
+
+        state.apply(Result('snapshot', players=(PLAYER,)))
+        self.assertNotIn(OTHER['player_id'], state.players)
+        self.assertEqual(state.online_count, 1)
+        state.apply(Result('ws_disconnected', '마지막 정보'))
+        self.assertFalse(state.ws_connected)
+        self.assertEqual(state.online_count, 1)
+        self.assertEqual(state.player['coins'], PLAYER['coins'])
+        state.apply(Result('player', player={**PLAYER, 'version': 7}))
+        self.assertFalse(state.ws_connected)  # HTTP refresh does not reconnect WebSocket.
+
     def test_status_content_type_and_schema(self):
         for mode in ('302', '401', '403', 'html', 'badjson', 'schema'):
             with self.subTest(mode=mode):
@@ -234,6 +270,14 @@ class ContractTests(unittest.TestCase):
             other.submit(Request('login', 'student', 'test-only'))
             self.assertEqual(other.results.get(timeout=5).kind, 'api')
             self.assertEqual(other.results.get(timeout=5).kind, 'player')
+            self.worker.submit(Request('logout'))
+            self.assertEqual(self.result()[0].kind, 'logged_out')
+            other.submit(Request('player'))
+            other_results = []
+            while not other_results or other_results[-1].kind != 'player':
+                other_results.append(other.results.get(timeout=5))
+            self.assertTrue(any(result.kind == 'api' for result in other_results))
+            self.assertEqual(other_results[-1].player, PLAYER)
         finally:
             other.stop()
             other.thread.join(2)

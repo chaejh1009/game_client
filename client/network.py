@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 import aiohttp
-from state import PLAYER_FIELDS, Request, Result
+from state import DELIVERY_FIELDS, PLAYER_FIELDS, Request, Result
 
 class Failure(Exception):
     def __init__(self, message, needs_login=False):
@@ -64,11 +64,15 @@ class NetworkWorker:
         async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout,
                                          trust_env=False) as self._session:
             active = None
+            delivery_task = None
             try:
                 while True:
                     if active is not None and active.done():
                         await active
                         active = None
+                    if delivery_task is not None and delivery_task.done():
+                        await delivery_task
+                        delivery_task = None
                     try:
                         request = self.requests.get_nowait()
                     except Empty:
@@ -76,6 +80,13 @@ class NetworkWorker:
                         continue
                     if request.kind == 'stop':
                         break
+                    if request.kind == 'delivery':
+                        if delivery_task is None:
+                            delivery_task = asyncio.create_task(self._dispatch(request))
+                        else:
+                            self.results.put(Result(
+                                'delivery_error', '이벤트 전달 상태 요청이 이미 진행 중입니다.'))
+                        continue
                     if active is None:
                         active = asyncio.create_task(self._dispatch(request))
                     else:
@@ -88,6 +99,9 @@ class NetworkWorker:
                 if active is not None:
                     active.cancel()
                     await asyncio.gather(active, return_exceptions=True)
+                if delivery_task is not None:
+                    delivery_task.cancel()
+                    await asyncio.gather(delivery_task, return_exceptions=True)
                 await self._close_ws()
                 jar.clear()
                 self._token = ''
@@ -197,6 +211,8 @@ class NetworkWorker:
 
     async def _http(self, method, path, *, payload=None, empty_ok=False):
         inspect_player = method == 'GET' and path == '/api/player/'
+        inspect_delivery = method == 'GET' and path == '/api/delivery/'
+        inspect_api = inspect_player or inspect_delivery
         status, safe = None, None
         headers = {'Accept': 'application/json'}
         if method == 'POST':
@@ -242,10 +258,22 @@ class NetworkWorker:
                         validated[key] = value
                     safe = validated
                     return safe
+                if inspect_delivery:
+                    source = data.get('source')
+                    if not isinstance(source, str) or not source or len(source) > 80:
+                        raise Failure('delivery 응답의 source를 확인하세요.')
+                    validated = {'source': source}
+                    for key in DELIVERY_FIELDS[1:]:
+                        value = data.get(key)
+                        if type(value) is not int or value < 0:
+                            raise Failure('delivery 응답의 카운트 필드를 확인하세요.')
+                        validated[key] = value
+                    safe = validated
+                    return safe
                 return data
         finally:
-            if inspect_player:
-                self.results.put(Result('api', status=status, player=safe))
+            if inspect_api:
+                self.results.put(Result('api', status=status, player=safe, api_path=path))
 
     def _validate_player(self, data):
         if not isinstance(data, dict):
@@ -401,6 +429,12 @@ class NetworkWorker:
                     raise Failure('먼저 로그인하세요.', True)
                 player = await self._http('GET', '/api/player/')
                 self.results.put(Result('player', '상태를 갱신했습니다.', player=player))
+            elif request.kind == 'delivery':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                delivery = await self._http('GET', '/api/delivery/')
+                self.results.put(Result('delivery', '이벤트 전달 상태를 갱신했습니다.',
+                                        delivery=delivery))
             elif request.kind == 'logout':
                 try:
                     await self._close_ws()
@@ -422,6 +456,8 @@ class NetworkWorker:
             message = str(error) if isinstance(error, Failure) else '서버 연결 실패 또는 시간 초과입니다. 다시 시도하세요.'
             needs_login = isinstance(error, Failure) and error.needs_login
             if request.kind in ('login', 'logout') or needs_login:
+                if needs_login:
+                    await self._close_ws()
                 self._session.cookie_jar.clear()
                 self._token = ''
                 self._authenticated = False
@@ -429,7 +465,12 @@ class NetworkWorker:
                 needs_login = True
             if request.kind == 'logout':
                 message += ' 로컬 계정은 지웠으나 서버 로그아웃은 확인되지 않았습니다.'
-            kind = 'command_error' if request.kind == 'command' else 'error'
+            if request.kind == 'command':
+                kind = 'command_error'
+            elif request.kind == 'delivery':
+                kind = 'delivery_error'
+            else:
+                kind = 'error'
             self.results.put(Result(kind, message, needs_login=needs_login,
                                     direction=request.direction, action=request.action))
         finally:

@@ -90,6 +90,23 @@ class ContractTests(unittest.TestCase):
                 if cls.mode == 'schema':
                     return web.json_response({'password': 'do-not-display'})
                 return web.json_response({**PLAYER, 'password': 'do-not-display', 'csrfToken': 'hidden'})
+            if req.path == '/api/delivery/':
+                assert req.cookies.get('sessionid')
+                assert req.cookies['csrftoken'] == 'rotated'
+                if cls.mode == 'slow_delivery':
+                    await asyncio.sleep(0.25)
+                if cls.mode == 'delivery_html':
+                    return web.Response(text='<html>private</html>', content_type='text/html')
+                if cls.mode in ('delivery_302', 'delivery_401'):
+                    status = int(cls.mode.removeprefix('delivery_'))
+                    return web.Response(status=status, headers={'Location': '/trap'})
+                return web.json_response({
+                    'source': 'mysql-outbox',
+                    'event_count': 12,
+                    'pending_publish_count': 3,
+                    'username': 'must-not-display',
+                    'csrfToken': 'must-not-display',
+                })
             raise AssertionError('Unexpected route / redirect followed')
         async def start():
             app = web.Application()
@@ -148,6 +165,9 @@ class ContractTests(unittest.TestCase):
             seen.append(result)
             if result.kind == kind:
                 return result, seen
+
+    def results_until(self, kind):
+        return self.result_kind(kind)
 
     def login(self):
         request = Request('login', 'student', 'test-only')
@@ -211,6 +231,58 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(result.player['coins'], PLAYER['coins'] + 1)
         self.assertEqual(self.commands[0]['type'], 'gather')
         self.assertNotIn('direction', self.commands[0])
+
+    def test_delivery_status_allowlist_cooldown_and_independent_move(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.assertTrue(state.begin_delivery(10.0))
+        self.assertFalse(state.begin_delivery(11.0))
+
+        type(self).mode = 'slow_delivery'
+        self.worker.submit(Request('delivery'))
+        self.worker.submit(Request('command', direction='up'))
+        command, before_command = self.results_until('command')
+        self.assertEqual(command.player['y'], PLAYER['y'] - 1)
+        self.assertFalse(any(result.kind == 'command_error' for result in before_command))
+
+        delivery, delivery_results = self.results_until('delivery')
+        all_results = before_command + delivery_results
+        for result in all_results:
+            state.apply(result)
+        self.assertEqual(delivery.delivery, {
+            'source': 'mysql-outbox',
+            'event_count': 12,
+            'pending_publish_count': 3,
+        })
+        self.assertEqual(state.delivery_source, 'mysql-outbox')
+        self.assertEqual(state.event_count, 12)
+        self.assertEqual(state.pending_publish_count, 3)
+        self.assertEqual(state.api_path, '/api/delivery/')
+        self.assertEqual(state.api_json, delivery.delivery)
+        self.assertNotIn('must-not-display', repr(all_results))
+        self.assertFalse(state.delivery_pending)
+        self.assertFalse(state.begin_delivery(14.99))
+        self.assertTrue(state.begin_delivery(15.0))
+
+    def test_delivery_rejects_html_without_reading_it_as_json(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        type(self).mode = 'delivery_html'
+        self.worker.submit(Request('delivery'))
+        result, results = self.results_until('delivery_error')
+        self.assertIn('JSON 응답이 아닙니다', result.message)
+        self.assertNotIn('<html>', repr(results))
+
+    def test_delivery_redirect_and_unauthorized_require_login(self):
+        for mode in ('delivery_302', 'delivery_401'):
+            with self.subTest(mode=mode):
+                type(self).mode = 'ok'
+                self.assertEqual(self.login()[0].kind, 'player')
+                type(self).mode = mode
+                self.worker.submit(Request('delivery'))
+                result, _ = self.results_until('delivery_error')
+                self.assertTrue(result.needs_login)
+                self.assertIn('로그인이 필요합니다', result.message)
+                self.assertNotIn(('GET', '/trap'), self.calls)
 
     def test_login_focus_blocks_movement(self):
         state = State(focus='username')

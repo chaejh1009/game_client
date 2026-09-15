@@ -1,5 +1,7 @@
 """Main-thread-only pygame asset preparation and rendering."""
 import json
+import math
+import time
 import pygame
 
 BG = (17, 25, 35)
@@ -44,6 +46,7 @@ class Renderer:
             'refresh': pygame.Rect(sidebar_x, 442, 76, 40),
             'logout': pygame.Rect(sidebar_x + 86, 442, 76, 40),
             'gather': pygame.Rect(sidebar_x + 172, 442, 76, 40),
+            'delivery': pygame.Rect(sidebar_x + 130, 136, 106, 30),
         }
         self.api_panel = pygame.Rect(sidebar_x, 548, width - sidebar_x - 24,
                                      config.window_height - 572)
@@ -120,9 +123,31 @@ class Renderer:
         selected, color = self._command_color(state, 'gather')
         disabled = state.busy or state.closing or (state.command_pending and not selected)
         self.button('gather', 'Z 채굴', disabled, color)
-        disabled = state.busy or state.closing or state.command_pending
+        disabled = (state.busy or state.closing or state.command_pending
+                    or state.delivery_pending)
         self.button('refresh', '새로고침', disabled)
         self.button('logout', '로그아웃', disabled)
+
+    def _draw_delivery(self, state):
+        pending = state.delivery_pending
+        elapsed = time.monotonic() - state.last_delivery_at
+        cooling = state.last_delivery_at >= 0 and elapsed < 5.0
+        if pending:
+            label = '확인 중…'
+        elif cooling:
+            label = f'{math.ceil(5.0 - elapsed)}초 후'
+        else:
+            label = '전달 상태'
+        self.button('delivery', label, pending or cooling or state.busy or state.closing)
+        panel = self.slots['village-board']
+        if state.event_count is None:
+            counts = '이벤트 — · 발행 대기 —'
+        else:
+            counts = (f'이벤트 {state.event_count} · '
+                      f'발행 대기 {state.pending_publish_count}')
+        self.text(counts, (panel.x + 12, panel.y + 52), INK, self.small)
+        source = state.delivery_source or '—'
+        self.text(f'source: {source}', (panel.x + 12, panel.y + 73), MUTED, self.small)
 
     def _draw_slot(self, name):
         rect = self.slots[name]
@@ -212,7 +237,8 @@ class Renderer:
         previous = self.screen.get_clip()
         self.screen.set_clip(self.api_panel.inflate(-8, -8))
         x, y = self.api_panel.x + 12, self.api_panel.y + 10
-        self.text('서버 state', (x, y), ACCENT, self.small)
+        path = state.api_path or '—'
+        self.text(f'API 응답 · {path}', (x, y), ACCENT, self.small)
         self.text('status: ' + str(state.api_status or '—'), (x, y + 24), MUTED, self.small)
         data = (json.dumps(state.api_json, ensure_ascii=False)
                 if state.api_json is not None else '아직 API 응답이 없습니다.')
@@ -238,8 +264,9 @@ class Renderer:
         room_panel = self.slots['village-board']
         self.text(f'방 {room}', (room_panel.x + 12, room_panel.y + 10), ACCENT, self.small)
         self.wrapped(f'온라인 {state.online_count}명{stale}', room_panel.x + 12,
-                     room_panel.y + 38, room_panel.width - 24,
+                     room_panel.y + 30, 112,
                      color=INK if state.ws_connected else PENDING)
+        self._draw_delivery(state)
         ws_panel = self.slots['lobby-banner']
         previous = self.screen.get_clip()
         self.screen.set_clip(ws_panel.inflate(-8, -8))

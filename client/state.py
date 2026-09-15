@@ -5,6 +5,7 @@ import json
 from urllib.parse import urlsplit
 
 PLAYER_FIELDS = ('player_id', 'room_id', 'x', 'y', 'coins', 'version')
+DELIVERY_FIELDS = ('source', 'event_count', 'pending_publish_count')
 
 @dataclass(frozen=True)
 class Config:
@@ -74,6 +75,8 @@ class Result:
     player: dict | None = None
     players: tuple = ()
     ws_json: dict | None = None
+    delivery: dict | None = None
+    api_path: str = ''
     status: int | None = None
     needs_login: bool = False
     direction: str = ''
@@ -97,6 +100,13 @@ class State:
     ws_json: dict | None = None
     api_status: int | None = None
     api_json: dict | None = None
+    api_path: str = ''
+    delivery_source: str = ''
+    event_count: int | None = None
+    pending_publish_count: int | None = None
+    delivery_pending: bool = False
+    delivery_status: str = ''
+    last_delivery_at: float = -1.0
     command_pending: bool = False
     selected_action: str = ''
     selected_direction: str = ''
@@ -142,6 +152,19 @@ class State:
         self.message = '코인 채굴 중…' if action == 'gather' else '이동 명령 처리 중…'
         return True
 
+    def begin_delivery(self, now):
+        if not self.authenticated or self.closing or self.delivery_pending:
+            return False
+        if self.last_delivery_at >= 0 and now - self.last_delivery_at < 5.0:
+            remaining = max(1, int(5.0 - (now - self.last_delivery_at) + 0.999))
+            self.message = f'이벤트 전달 상태는 {remaining}초 뒤 다시 확인할 수 있습니다.'
+            return False
+        self.last_delivery_at = now
+        self.delivery_pending = True
+        self.delivery_status = 'pending'
+        self.message = '내 이벤트 전달 상태를 확인하는 중…'
+        return True
+
     def clear_account(self):
         self.authenticated = False
         self.username = self.password = ''
@@ -152,6 +175,12 @@ class State:
         self.ws_connected = False
         self.ws_json = None
         self.api_status = None
+        self.api_path = ''
+        self.delivery_source = ''
+        self.event_count = self.pending_publish_count = None
+        self.delivery_pending = False
+        self.delivery_status = ''
+        self.last_delivery_at = -1.0
         self.command_pending = False
         self.selected_action = ''
         self.selected_direction = ''
@@ -163,6 +192,7 @@ class State:
             return
         if result.kind == 'api':
             self.api_status, self.api_json = result.status, result.player
+            self.api_path = result.api_path
             return
         if result.ws_json is not None:
             self.ws_json = result.ws_json
@@ -198,6 +228,9 @@ class State:
             self.command_status = 'success' if result.kind == 'command' else 'error'
             self.selected_action = result.action
             self.selected_direction = result.direction
+        elif result.kind in ('delivery', 'delivery_error'):
+            self.delivery_pending = False
+            self.delivery_status = 'success' if result.kind == 'delivery' else 'error'
         else:
             self.busy = False
         self.message = result.message
@@ -212,6 +245,10 @@ class State:
                 self.ws_connected = True
         elif result.kind == 'command':
             self._merge_player(result.player)
+        elif result.kind == 'delivery':
+            self.delivery_source = result.delivery['source']
+            self.event_count = result.delivery['event_count']
+            self.pending_publish_count = result.delivery['pending_publish_count']
         elif result.kind == 'logged_out' or result.needs_login:
             self.clear_account()
         elif result.kind == 'fatal':

@@ -29,6 +29,8 @@ def main():
         def submit(kind):
             if state.busy or state.closing:
                 return
+            if kind in ('player', 'logout') and state.delivery_pending:
+                return
             if kind == 'login':
                 if not state.username.strip() or not state.password:
                     state.message = '사용자명과 비밀번호를 입력하세요.'
@@ -46,6 +48,10 @@ def main():
             if state.begin_command(action, time.monotonic(), direction):
                 worker.submit(Request('command', direction=direction, action=action))
 
+        def request_delivery():
+            if state.begin_delivery(time.monotonic()):
+                worker.submit(Request('delivery'))
+
         key_directions = {
             pygame.K_UP: 'up',
             pygame.K_DOWN: 'down',
@@ -62,7 +68,8 @@ def main():
                     worker.stop()
                 elif not state.closing and not state.busy:
                     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                        names = (('up', 'down', 'left', 'right', 'gather', 'refresh', 'logout')
+                        names = (('up', 'down', 'left', 'right', 'gather', 'refresh',
+                                  'logout', 'delivery')
                                  if state.authenticated else ('username', 'password', 'login'))
                         for name in names:
                             if renderer.controls[name].collidepoint(event.pos):
@@ -72,6 +79,8 @@ def main():
                                     request_command('move', name)
                                 elif name == 'gather':
                                     request_command('gather')
+                                elif name == 'delivery':
+                                    request_delivery()
                                 else:
                                     submit('player' if name == 'refresh' else name)
                     elif event.type == pygame.KEYDOWN:

@@ -134,22 +134,34 @@ class State:
     def begin_command(self, action, now, direction=''):
         if action == 'move' and direction not in ('up', 'down', 'left', 'right'):
             return False
-        if action not in ('move', 'gather'):
+        if action not in ('move', 'gather', 'train'):
             return False
         if not self.authenticated:
             self.message = '로그인 입력 중에는 게임 명령을 사용할 수 없습니다.'
             return False
         if self.closing or self.busy or self.command_pending:
             return False
+        if action == 'train':
+            if not self.ws_connected:
+                self.message = '게임 연결이 열려 있을 때만 수련할 수 있습니다.'
+                return False
+            if self.player is None or (self.player['x'], self.player['y']) != (3, 2):
+                self.message = '개인 수련은 수련 타일 (3, 2)에서만 가능합니다.'
+                return False
         if self.last_command_at >= 0 and now - self.last_command_at < 0.2:
-            self.message = '이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.'
+            self.message = '게임 명령은 모두 합쳐 초당 최대 5개입니다.'
             return False
         self.last_command_at = now
         self.command_pending = True
         self.selected_action = action
         self.selected_direction = direction
         self.command_status = 'pending'
-        self.message = '코인 채굴 중…' if action == 'gather' else '이동 명령 처리 중…'
+        messages = {
+            'gather': '코인 채굴 중…',
+            'train': '개인 수련 명령 처리 중…',
+            'move': '이동 명령 처리 중…',
+        }
+        self.message = messages[action]
         return True
 
     def begin_delivery(self, now):

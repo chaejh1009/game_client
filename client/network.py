@@ -8,7 +8,7 @@ from queue import Empty, Queue
 from threading import Thread
 import time
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
+import uuid
 import aiohttp
 from state import DELIVERY_FIELDS, PLAYER_FIELDS, Request, Result
 
@@ -66,6 +66,7 @@ class NetworkWorker:
             active = None
             delivery_task = None
             analytics_task = None
+            history_task = None
             try:
                 while True:
                     if active is not None and active.done():
@@ -77,6 +78,9 @@ class NetworkWorker:
                     if analytics_task is not None and analytics_task.done():
                         await analytics_task
                         analytics_task = None
+                    if history_task is not None and history_task.done():
+                        await history_task
+                        history_task = None
                     try:
                         request = self.requests.get_nowait()
                     except Empty:
@@ -98,6 +102,13 @@ class NetworkWorker:
                             self.results.put(Result(
                                 'analytics_error', '통계 읽기 요청이 이미 진행 중입니다.'))
                         continue
+                    if request.kind == 'history':
+                        if history_task is None:
+                            history_task = asyncio.create_task(self._dispatch(request))
+                        else:
+                            self.results.put(Result(
+                                'history_error', '행동 이력 요청이 이미 진행 중입니다.'))
+                        continue
                     if active is None:
                         active = asyncio.create_task(self._dispatch(request))
                     else:
@@ -116,6 +127,9 @@ class NetworkWorker:
                 if analytics_task is not None:
                     analytics_task.cancel()
                     await asyncio.gather(analytics_task, return_exceptions=True)
+                if history_task is not None:
+                    history_task.cancel()
+                    await asyncio.gather(history_task, return_exceptions=True)
                 await self._close_ws()
                 jar.clear()
                 self._token = ''
@@ -173,10 +187,11 @@ class NetworkWorker:
 
     def _command_failure(self, data):
         messages = {
-            'too_fast': '이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.',
+            'too_fast': '게임 명령은 모두 합쳐 초당 최대 5개입니다.',
             'outside_map': '맵 바깥으로 이동할 수 없습니다.',
             'invalid_direction': '올바르지 않은 이동 방향입니다.',
             'not_at_gather_tile': '코인은 채굴 지점 (2, 2)에서만 채굴할 수 있습니다.',
+            'not_at_train_tile': '개인 수련은 수련 타일 (3, 2)에서만 가능합니다.',
             'unknown_action': '올바르지 않은 게임 명령입니다.',
         }
         return Failure(messages.get(data.get('code'), '게임 명령을 처리하지 못했습니다.'))
@@ -200,14 +215,20 @@ class NetworkWorker:
                     continue
                 player = self._validate_player(data)
                 safe = self._safe_state_message(player, command_id)
-                self.results.put(Result('state', player=player, ws_json=safe))
-                if command_id == self._command_id and self._command_waiter is not None:
-                    if player['player_id'] != self._player_id:
-                        if not self._command_waiter.done():
-                            self._command_waiter.set_exception(
-                                Failure('게임 명령 응답의 player가 일치하지 않습니다.'))
-                    elif not self._command_waiter.done():
+                if player['player_id'] != self._player_id:
+                    # Another player's broadcast never acknowledges my command.
+                    self.results.put(Result('state', player=player, ws_json=safe))
+                    continue
+                waiter_pending = (self._command_waiter is not None
+                                  and not self._command_waiter.done())
+                if waiter_pending:
+                    # Keep the WS inspector current, but merge my player only after
+                    # the matching command acknowledgement becomes a command result.
+                    self.results.put(Result('ws_event', ws_json=safe))
+                    if command_id == self._command_id:
                         self._command_waiter.set_result(player)
+                    continue
+                self.results.put(Result('state', player=player, ws_json=safe))
         except asyncio.CancelledError:
             raise
         except (Failure, aiohttp.ClientError, ValueError) as error:
@@ -227,7 +248,8 @@ class NetworkWorker:
         inspect_player = method == 'GET' and path == '/api/player/'
         inspect_delivery = method == 'GET' and path == '/api/delivery/'
         inspect_analytics = method == 'GET' and path == '/api/analytics/'
-        inspect_api = inspect_player or inspect_delivery or inspect_analytics
+        inspect_history = method == 'GET' and path == '/api/history/'
+        inspect_api = inspect_player or inspect_delivery or inspect_analytics or inspect_history
         status, safe = None, None
         headers = {'Accept': 'application/json'}
         if method == 'POST':
@@ -314,6 +336,9 @@ class NetworkWorker:
                         'by_room': list(by_room),
                     }
                     return safe
+                if inspect_history:
+                    safe = self._validate_history(data)
+                    return safe
                 return data
         finally:
             if inspect_api:
@@ -335,6 +360,72 @@ class NetworkWorker:
                 raise Failure(f'analytics 응답의 {field_name} 행을 확인하세요.')
             validated.append({label_key: label, 'count': count})
         return tuple(validated)
+
+    def _validate_history(self, data):
+        scope = data.get('scope')
+        limit = data.get('limit')
+        events = data.get('events')
+        if scope != 'current-player':
+            raise Failure('history 응답의 scope를 확인하세요.')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise Failure('history 응답의 limit을 확인하세요.')
+        if not isinstance(events, list) or len(events) > limit:
+            raise Failure('history 응답의 events 형식을 확인하세요.')
+        validated_events = []
+        for event in events:
+            if not isinstance(event, dict):
+                raise Failure('history 응답의 event 형식을 확인하세요.')
+            schema_version = event.get('schema_version')
+            event_id = event.get('event_id')
+            event_type = event.get('event_type')
+            player_id = event.get('player_id')
+            room_id = event.get('room_id')
+            event_time = event.get('event_time')
+            payload = event.get('payload')
+            if type(schema_version) is not int or schema_version < 1:
+                raise Failure('history event의 schema_version을 확인하세요.')
+            if not isinstance(event_id, str) or not event_id or len(event_id) > 80:
+                raise Failure('history event의 event_id를 확인하세요.')
+            if not isinstance(event_type, str) or not event_type or len(event_type) > 80:
+                raise Failure('history event의 event_type을 확인하세요.')
+            for name, value in (('player_id', player_id), ('room_id', room_id)):
+                valid = type(value) is int or (
+                    isinstance(value, str) and bool(value) and len(value) <= 80)
+                if not valid:
+                    raise Failure(f'history event의 {name}를 확인하세요.')
+            if not isinstance(event_time, str) or not event_time or len(event_time) > 120:
+                raise Failure('history event의 event_time을 확인하세요.')
+            if not isinstance(payload, dict):
+                raise Failure('history event의 payload를 확인하세요.')
+            safe_payload = {}
+            for key in ('x', 'y', 'coins', 'version'):
+                value = payload.get(key)
+                if type(value) is not int:
+                    raise Failure(f'history event payload의 {key}를 확인하세요.')
+                safe_payload[key] = value
+            transition = payload.get('transition')
+            safe_transition = None
+            if transition is not None:
+                if not isinstance(transition, dict):
+                    raise Failure('history event payload의 transition을 확인하세요.')
+                step = transition.get('step')
+                reward = transition.get('reward')
+                if type(step) is not int or step < 1:
+                    raise Failure('history transition의 step을 확인하세요.')
+                if isinstance(reward, bool) or not isinstance(reward, (int, float)):
+                    raise Failure('history transition의 reward를 확인하세요.')
+                safe_transition = {'step': step, 'reward': reward}
+            safe_payload['transition'] = safe_transition
+            validated_events.append({
+                'schema_version': schema_version,
+                'event_id': event_id,
+                'event_type': event_type,
+                'player_id': player_id,
+                'room_id': room_id,
+                'event_time': event_time,
+                'payload': safe_payload,
+            })
+        return {'scope': scope, 'limit': limit, 'events': validated_events}
 
     def _validate_player(self, data):
         if not isinstance(data, dict):
@@ -374,11 +465,13 @@ class NetworkWorker:
     async def _command(self, action, direction):
         if self._ws is None or self._ws.closed:
             raise Failure('게임 연결이 끊어졌습니다. 다시 로그인하세요.', True)
+        if action not in ('move', 'gather', 'train'):
+            raise Failure('올바르지 않은 게임 명령입니다.')
         now = time.monotonic()
         if self._last_command_at >= 0 and now - self._last_command_at < 0.2:
-            raise Failure('이동과 채굴 명령은 모두 합쳐 초당 최대 5개입니다.')
+            raise Failure('게임 명령은 모두 합쳐 초당 최대 5개입니다.')
         self._last_command_at = now
-        command_id = str(uuid4())
+        command_id = str(uuid.uuid4())
         payload = {'type': action, 'command_id': command_id}
         if action == 'move':
             payload['direction'] = direction
@@ -502,6 +595,12 @@ class NetworkWorker:
                 analytics = await self._http('GET', '/api/analytics/')
                 self.results.put(Result('analytics', '저장된 통계를 읽었습니다.',
                                         player=analytics))
+            elif request.kind == 'history':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                history = await self._http('GET', '/api/history/')
+                self.results.put(Result('history', '최근 행동 이력을 읽었습니다.',
+                                        player=history))
             elif request.kind == 'logout':
                 try:
                     await self._close_ws()
@@ -514,11 +613,19 @@ class NetworkWorker:
                 self.results.put(Result('logged_out', '로그아웃했습니다.'))
             elif request.kind == 'command':
                 player = await self._command(request.action, request.direction)
-                message = ('코인 채굴을 완료했습니다.' if request.action == 'gather'
-                           else '이동 명령을 완료했습니다.')
+                messages = {
+                    'gather': '코인 채굴을 완료했습니다.',
+                    'train': '개인 수련을 완료했습니다.',
+                    'move': '이동 명령을 완료했습니다.',
+                }
                 self.results.put(Result(
-                    'command', message, player=player, direction=request.direction,
+                    'command', messages[request.action], player=player,
+                    direction=request.direction,
                     action=request.action))
+                if request.action == 'train':
+                    # The worker loop runs this as an independent task using the
+                    # same ClientSession, so gameplay input never waits on history.
+                    self.requests.put_nowait(Request('history'))
         except (Failure, aiohttp.ClientError, TimeoutError, ValueError) as error:
             message = str(error) if isinstance(error, Failure) else '서버 연결 실패 또는 시간 초과입니다. 다시 시도하세요.'
             needs_login = isinstance(error, Failure) and error.needs_login
@@ -538,6 +645,8 @@ class NetworkWorker:
                 kind = 'delivery_error'
             elif request.kind == 'analytics':
                 kind = 'analytics_error'
+            elif request.kind == 'history':
+                kind = 'history_error'
             else:
                 kind = 'error'
             self.results.put(Result(kind, message, needs_login=needs_login,

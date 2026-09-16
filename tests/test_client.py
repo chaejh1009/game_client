@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import unittest
+from uuid import UUID
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
@@ -52,6 +53,9 @@ class ContractTests(unittest.TestCase):
                     elif command['type'] == 'gather':
                         assert 'direction' not in command
                         state['coins'] = PLAYER['coins'] + 1
+                    elif command['type'] == 'train':
+                        assert 'direction' not in command
+                        state['coins'] = PLAYER['coins'] + 1
                     # Room broadcasts can arrive between a command and its acknowledgement.
                     await ws.send_json({**OTHER, 'type': 'state',
                                         'x': OTHER['x'] + 1,
@@ -91,6 +95,40 @@ class ContractTests(unittest.TestCase):
                 if cls.mode == 'schema':
                     return web.json_response({'password': 'do-not-display'})
                 return web.json_response({**PLAYER, 'password': 'do-not-display', 'csrfToken': 'hidden'})
+            if req.path == '/api/history/':
+                assert req.cookies.get('sessionid')
+                assert req.cookies['csrftoken'] == 'rotated'
+                if cls.mode == 'history_html':
+                    return web.Response(text='<html>private history</html>',
+                                        content_type='text/html')
+                if cls.mode == 'history_schema':
+                    return web.json_response({
+                        'scope': 'current-player', 'limit': 20,
+                        'events': [{'password': 'must-not-display'}],
+                    })
+                return web.json_response({
+                    'scope': 'current-player',
+                    'limit': 20,
+                    'events': [{
+                        'schema_version': 1,
+                        'event_id': '8a0b52f1-12dc-4434-a1a5-b86be381145a',
+                        'event_type': 'player.moved',
+                        'player_id': PLAYER['player_id'],
+                        'room_id': PLAYER['room_id'],
+                        'event_time': '2026-09-16T01:02:03+00:00',
+                        'payload': {
+                            'x': PLAYER['x'], 'y': PLAYER['y'],
+                            'coins': PLAYER['coins'], 'version': PLAYER['version'],
+                            'command_id': 'must-not-display',
+                            'transition': {
+                                'step': 3, 'reward': 1,
+                                'policy_version': 'must-not-display',
+                            },
+                        },
+                        'csrfToken': 'must-not-display',
+                    }],
+                    'username': 'must-not-display',
+                })
             if req.path == '/api/delivery/':
                 assert req.cookies.get('sessionid')
                 assert req.cookies['csrftoken'] == 'rotated'
@@ -262,6 +300,27 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(self.commands[0]['type'], 'gather')
         self.assertNotIn('direction', self.commands[0])
 
+    def test_train_sends_minimal_uuid_command_then_fetches_history(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.worker.submit(Request('command', action='train'))
+        command, results = self.results_until('command')
+        self.assertEqual(command.action, 'train')
+        self.assertEqual(command.player['coins'], PLAYER['coins'] + 1)
+        payload = self.commands[0]
+        self.assertEqual(set(payload), {'type', 'command_id'})
+        self.assertEqual(payload['type'], 'train')
+        self.assertEqual(str(UUID(payload['command_id'])), payload['command_id'])
+        self.assertFalse(any(item.kind == 'state'
+                             and item.player['player_id'] == PLAYER['player_id']
+                             for item in results))
+        history, history_results = self.results_until('history')
+        self.assertEqual(history.kind, 'history')
+        self.assertIn(('GET', '/api/history/'), self.calls)
+        api_result = next(item for item in history_results
+                          if item.kind == 'api' and item.api_path == '/api/history/')
+        transition = api_result.player['events'][0]['payload']['transition']
+        self.assertEqual(transition, {'step': 3, 'reward': 1})
+
     def test_delivery_status_allowlist_cooldown_and_independent_move(self):
         self.assertEqual(self.login()[0].kind, 'player')
         state = State(authenticated=True, player=PLAYER.copy())
@@ -301,6 +360,45 @@ class ContractTests(unittest.TestCase):
         result, results = self.results_until('delivery_error')
         self.assertIn('JSON 응답이 아닙니다', result.message)
         self.assertNotIn('<html>', repr(results))
+
+    def test_history_path_allowlist_and_api_panel_result(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.worker.submit(Request('history'))
+        result, results = self.results_until('history')
+        api_result = next(item for item in results
+                          if item.kind == 'api' and item.api_path == '/api/history/')
+        state = State(authenticated=True, busy=True, player=PLAYER.copy())
+        for item in results:
+            state.apply(item)
+        self.assertEqual(result.kind, 'history')
+        self.assertEqual(state.api_path, '/api/history/')
+        self.assertEqual(state.api_status, 200)
+        self.assertEqual(api_result.player['scope'], 'current-player')
+        self.assertEqual(api_result.player['limit'], 20)
+        self.assertEqual(api_result.player['events'][0]['payload'], {
+            'x': PLAYER['x'], 'y': PLAYER['y'],
+            'coins': PLAYER['coins'], 'version': PLAYER['version'],
+            'transition': {'step': 3, 'reward': 1},
+        })
+        self.assertFalse(state.busy)
+        self.assertNotIn('must-not-display', repr(results))
+
+    def test_history_rejects_html_and_bad_schema(self):
+        for mode in ('history_html', 'history_schema'):
+            with self.subTest(mode=mode):
+                type(self).mode = 'ok'
+                self.assertEqual(self.login()[0].kind, 'player')
+                type(self).mode = mode
+                self.worker.submit(Request('history'))
+                result, results = self.results_until('history_error')
+                if mode == 'history_html':
+                    self.assertIn('JSON 응답이 아닙니다', result.message)
+                    self.assertNotIn('<html>', repr(results))
+                else:
+                    self.assertIn('history event', result.message)
+                    self.assertNotIn('must-not-display', repr(results))
+                self.worker.submit(Request('logout'))
+                self.assertEqual(self.result()[0].kind, 'logged_out')
 
     def test_delivery_redirect_and_unauthorized_require_login(self):
         for mode in ('delivery_302', 'delivery_401'):

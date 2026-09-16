@@ -11,6 +11,7 @@ MUTED = (155, 178, 186)
 ACCENT = (107, 218, 174)
 PENDING = (241, 190, 83)
 ERROR = (235, 112, 112)
+TRAIN = (113, 166, 255)
 GRASS_FALLBACK = (92, 154, 78)
 PATH_FALLBACK = (206, 158, 99)
 TILE_SIZE = 32
@@ -31,6 +32,7 @@ class Renderer:
         width = config.window_width
         self.map_rect = pygame.Rect(24, 128, MAP_COLUMNS * TILE_SIZE, MAP_ROWS * TILE_SIZE)
         sidebar_x = self.map_rect.right + 24
+        sidebar_width = width - sidebar_x - 24
         self.slots = {
             'village-board': pygame.Rect(sidebar_x, 128, width - sidebar_x - 24, 96),
             'lobby-banner': pygame.Rect(sidebar_x, 236, width - sidebar_x - 24, 96),
@@ -43,14 +45,24 @@ class Renderer:
             'left': pygame.Rect(sidebar_x, 394, 76, 40),
             'down': pygame.Rect(sidebar_x + 86, 394, 76, 40),
             'right': pygame.Rect(sidebar_x + 172, 394, 76, 40),
-            'refresh': pygame.Rect(sidebar_x, 442, 76, 40),
-            'logout': pygame.Rect(sidebar_x + 86, 442, 76, 40),
-            'gather': pygame.Rect(sidebar_x + 172, 442, 76, 40),
+            'refresh': pygame.Rect(sidebar_x, 442, 57, 40),
+            'logout': pygame.Rect(sidebar_x + 63, 442, 57, 40),
+            'gather': pygame.Rect(sidebar_x + 126, 442, 57, 40),
+            'train': pygame.Rect(sidebar_x + 189, 442, 59, 40),
             'delivery': pygame.Rect(sidebar_x + 130, 136, 106, 30),
-            'analytics': pygame.Rect(sidebar_x, 492, width - sidebar_x - 24, 36),
+            'analytics': pygame.Rect(sidebar_x, 492, (sidebar_width - 8) // 2, 36),
+            'history_panel': pygame.Rect(sidebar_x + (sidebar_width - 8) // 2 + 8,
+                                         492, (sidebar_width - 8) // 2, 36),
         }
         self.api_panel = pygame.Rect(sidebar_x, 548, width - sidebar_x - 24,
                                      config.window_height - 572)
+        api_button_width = (self.api_panel.width - 30) // 2
+        self.controls.update({
+            'api_player': pygame.Rect(self.api_panel.x + 10, self.api_panel.y + 30,
+                                      api_button_width, 26),
+            'api_history': pygame.Rect(self.api_panel.x + 20 + api_button_width,
+                                       self.api_panel.y + 30, api_button_width, 26),
+        })
 
     def _prepare_fonts(self):
         font_path = self.config.font_path
@@ -61,11 +73,13 @@ class Renderer:
         try:
             self.font = pygame.font.Font(str(font_path) if font_path else None, 19)
             self.small = pygame.font.Font(str(font_path) if font_path else None, 14)
+            self.tiny = pygame.font.Font(str(font_path) if font_path else None, 12)
             self.title = pygame.font.Font(str(font_path) if font_path else None, 30)
         except (OSError, pygame.error):
             self.asset_errors.append('font_path의 폰트를 열 수 없습니다.')
             self.font = pygame.font.Font(None, 19)
             self.small = pygame.font.Font(None, 14)
+            self.tiny = pygame.font.Font(None, 12)
             self.title = pygame.font.Font(None, 30)
 
     def _prepare_assets(self):
@@ -116,18 +130,25 @@ class Renderer:
         colors = {'pending': PENDING, 'success': ACCENT, 'error': ERROR}
         return selected, colors.get(state.command_status, ACCENT) if selected else (84, 113, 122)
 
-    def _draw_commands(self, state, analytics_panel=None):
+    def _draw_commands(self, state, analytics_panel=None, history_panel=None):
         for name, label in (('up', '↑'), ('left', '←'), ('down', '↓'), ('right', '→')):
             selected, color = self._command_color(state, 'move', name)
             disabled = state.busy or state.closing or (state.command_pending and not selected)
             self.button(name, label, disabled, color)
         selected, color = self._command_color(state, 'gather')
         disabled = state.busy or state.closing or (state.command_pending and not selected)
-        self.button('gather', 'Z 채굴', disabled, color)
+        self.button('gather', '채굴', disabled, color)
+        selected, color = self._command_color(state, 'train')
+        at_train_tile = (state.player is not None
+                         and (state.player['x'], state.player['y']) == (3, 2))
+        train_enabled = (state.authenticated and state.ws_connected and at_train_tile
+                         and not state.command_pending and not state.busy
+                         and not state.closing)
+        self.button('train', 'X 수련', not train_enabled, color)
         disabled = (state.busy or state.closing or state.command_pending
                     or state.delivery_pending
                     or analytics_panel is not None and analytics_panel.pending)
-        self.button('refresh', '새로고침', disabled)
+        self.button('refresh', '갱신', disabled)
         self.button('logout', '로그아웃', disabled)
 
     def _draw_delivery(self, state):
@@ -191,6 +212,15 @@ class Renderer:
                              self.map_rect.y + 2 * TILE_SIZE, TILE_SIZE, TILE_SIZE)
         pygame.draw.rect(self.screen, PENDING, gather, width=2)
 
+        train = pygame.Rect(self.map_rect.x + 3 * TILE_SIZE,
+                            self.map_rect.y + 2 * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+        pygame.draw.rect(self.screen, TRAIN, train, width=2)
+        pygame.draw.line(self.screen, TRAIN, (train.centerx, train.y + 15),
+                         (train.centerx, train.bottom - 5), 2)
+        sign = pygame.Rect(train.x + 6, train.y + 6, TILE_SIZE - 12, 11)
+        pygame.draw.rect(self.screen, (31, 58, 91), sign, border_radius=2)
+        pygame.draw.rect(self.screen, TRAIN, sign, width=1, border_radius=2)
+
         # Decorations never alter movement or the server's collision rules.
         for x, y in ((5, 4), (12, 3), (16, 10), (8, 12)):
             self._draw_sprite_at_tile('tree', x, y, (35, 104, 60))
@@ -220,11 +250,13 @@ class Renderer:
         colors = {'pending': PENDING, 'success': ACCENT, 'error': ERROR}
         if state.selected_action == 'gather':
             label = '코인 채굴'
+        elif state.selected_action == 'train':
+            label = '개인 수련'
         elif state.selected_direction:
             names = {'up': '위쪽', 'down': '아래쪽', 'left': '왼쪽', 'right': '오른쪽'}
             label = f'{names[state.selected_direction]} 이동'
         else:
-            label = '방향키 이동 · Z 채굴'
+            label = '방향키 이동 · Z 채굴 · X 수련'
         status = statuses.get(state.command_status)
         if status:
             label += f' · {status}'
@@ -281,27 +313,81 @@ class Renderer:
                 row_y += 25
         self.screen.set_clip(previous)
 
-    def _draw_api_panel(self, state):
+    def _draw_api_panel(self, state, analytics_panel=None, history_panel=None):
         pygame.draw.rect(self.screen, CARD, self.api_panel, border_radius=10)
         previous = self.screen.get_clip()
         self.screen.set_clip(self.api_panel.inflate(-8, -8))
         x, y = self.api_panel.x + 12, self.api_panel.y + 10
+        self.text('API 응답 보기', (x, y), ACCENT, self.small)
+        disabled = (state.busy or state.closing or state.command_pending
+                    or state.delivery_pending
+                    or analytics_panel is not None and analytics_panel.pending
+                    or history_panel is not None and history_panel.pending)
+        self.button('api_player', '/api/player/', disabled,
+                    ACCENT if state.api_path == '/api/player/' else (84, 113, 122))
+        self.button('api_history', '/api/history/', disabled,
+                    ACCENT if state.api_path == '/api/history/' else (84, 113, 122))
         path = state.api_path or '—'
-        self.text(f'API 응답 · {path}', (x, y), ACCENT, self.small)
-        self.text('status: ' + str(state.api_status or '—'), (x, y + 24), MUTED, self.small)
+        status = str(state.api_status) if state.api_status is not None else '—'
+        self.text(f'{path} · status {status}', (x, y + 62), MUTED, self.small)
         data = (json.dumps(state.api_json, ensure_ascii=False)
                 if state.api_json is not None else '아직 API 응답이 없습니다.')
-        self.wrapped(data, x, y + 48, self.api_panel.width - 24, color=INK)
+        self.wrapped(data, x, y + 84, self.api_panel.width - 24, color=INK)
         self.screen.set_clip(previous)
 
-    def _draw_game(self, state, analytics_panel=None):
+    def _draw_history_panel(self, panel):
+        if panel is None or not panel.visible:
+            return
+        rect = self.map_rect.inflate(-60, -44)
+        pygame.draw.rect(self.screen, BG, rect, border_radius=12)
+        pygame.draw.rect(self.screen, TRAIN, rect, width=2, border_radius=12)
+        previous = self.screen.get_clip()
+        self.screen.set_clip(rect.inflate(-4, -4))
+        x, y = rect.x + 18, rect.y + 14
+        self.text('최근 행동 이력', (x, y), TRAIN, self.font)
+        if panel.pending:
+            self.text(panel.message, (x, y + 42), MUTED, self.small)
+            self.screen.set_clip(previous)
+            return
+        if not panel.events:
+            self.text(panel.message, (x, y + 42), MUTED, self.small)
+            self.screen.set_clip(previous)
+            return
+        self.text(f'{panel.scope} · 최대 {panel.limit}개', (x + 150, y + 5), MUTED,
+                  self.small)
+        header_y = y + 42
+        self.text('event_time', (x, header_y), MUTED, self.tiny)
+        self.text('event_type', (x + 160, header_y), MUTED, self.tiny)
+        self.text('transition', (x + 300, header_y), MUTED, self.tiny)
+        row_y = header_y + 18
+        for event in panel.events[:20]:
+            row = pygame.Rect(x, row_y, rect.width - 36, 16)
+            pygame.draw.rect(self.screen, CARD, row, border_radius=4)
+            event_time = str(event['event_time']).replace('T', ' ')[:19]
+            self.text(event_time, (row.x + 8, row.y + 2), INK, self.tiny)
+            self.text(str(event['event_type'])[:20], (row.x + 168, row.y + 2), INK,
+                      self.tiny)
+            transition = event['payload']['transition']
+            if transition is None:
+                detail = '확장 이전 기록'
+                color = PENDING
+            else:
+                reward = transition['reward']
+                detail = f"step {transition['step']} · reward {reward:+g}"
+                color = ACCENT if reward >= 0 else ERROR
+            self.text(detail, (row.x + 308, row.y + 2), color, self.tiny)
+            row_y += 17
+        self.screen.set_clip(previous)
+
+    def _draw_game(self, state, analytics_panel=None, history_panel=None):
         self.text('작은 마을', (24, 24), font=self.title)
         player = state.player
         if player is not None:
             stats = (f"room {player['room_id']}  ·  위치 ({player['x']}, {player['y']})"
                      f"  ·  coins {player['coins']}  ·  version {player['version']}")
             self.text(stats, (24, 76), MUTED, self.small)
-        self.text('채굴 지점 (2, 2)', (24, 102), PENDING, self.small)
+        self.text('채굴 지점 (2, 2)  ·  개인 수련 (3, 2)', (24, 102), PENDING,
+                  self.small)
         self._draw_map(state)
         self._draw_slot('village-board')
         self._draw_slot('lobby-banner')
@@ -322,14 +408,20 @@ class Renderer:
         self.wrapped(ws_data, ws_panel.x + 12, ws_panel.y + 34,
                      ws_panel.width - 24, color=INK)
         self.screen.set_clip(previous)
-        self._draw_commands(state, analytics_panel)
+        self._draw_commands(state, analytics_panel, history_panel)
         label = ('통계 닫기' if analytics_panel is not None and analytics_panel.visible
                  else '통계 읽기')
         disabled = (analytics_panel is not None and analytics_panel.pending)
         self.button('analytics', label, disabled or state.busy or state.closing)
+        history_label = ('이력 닫기' if history_panel is not None and history_panel.visible
+                         else '수련 이력')
+        self.button('history_panel', history_label,
+                    (analytics_panel is not None and analytics_panel.pending)
+                    or state.busy or state.closing)
         self._draw_command_status(state)
-        self._draw_api_panel(state)
+        self._draw_api_panel(state, analytics_panel, history_panel)
         self._draw_analytics_panel(analytics_panel)
+        self._draw_history_panel(history_panel)
 
     def _draw_login(self, state):
         self.text('VILLAGE LAB', (40, 28), ACCENT, self.small)
@@ -355,10 +447,10 @@ class Renderer:
             self.wrapped(' · '.join(self.asset_errors), 40, 410,
                          self.config.window_width - 80, color=ERROR)
 
-    def draw(self, state, analytics_panel=None):
+    def draw(self, state, analytics_panel=None, history_panel=None):
         self.screen.fill(BG)
         if state.authenticated:
-            self._draw_game(state, analytics_panel)
+            self._draw_game(state, analytics_panel, history_panel)
         else:
             self._draw_login(state)
         pygame.display.flip()

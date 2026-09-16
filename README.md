@@ -2,6 +2,17 @@
 
 Python 3.12, pygame-ce, aiohttp와 표준 라이브러리로 동작하는 데스크톱 클라이언트입니다. Django 세션 로그인, 자기 player 상태 조회, WebSocket 게임 명령(이동·채굴)을 지원하며 게임 규칙, Django view, DB는 변경하지 않습니다. 브라우저/WebView를 사용하지 않습니다.
 
+## 행동데이터 재생기 (서버 불필요)
+
+기록된 `/Users/chaejonghun/chapter3/data-replay/raw/game-events.jsonl`을 화면으로 재생하려면 기존 접속기인 `client/main.py`가 아니라 아래 재생기를 실행하세요. 서버·로그인·WebSocket이 필요 없습니다.
+
+```sh
+cd /Users/chaejonghun/chapter3/game_client
+client/.venv/bin/python replay_client/main.py
+```
+
+정상 실행 시 창 제목은 `Replay Client · 행동데이터 재생`이고 `EVENT TIMELINE`, `EVENT EDITOR` 패널이 보입니다. 자세한 조작은 [`replay_client/README.md`](replay_client/README.md)를 참고하세요.
+
 로그인 후에는 20×15 타일 마을, 길, 나무·집 장식, 플레이어 스프라이트를 Pygame 화면에 표시합니다. WebSocket으로 받은 같은 방의 접속자 목록과 위치 변경을 실시간으로 반영하며, 내 플레이어는 초록색 표식, 다른 플레이어는 노란색 표식과 player ID로 구분합니다.
 
 ## 현재 기능

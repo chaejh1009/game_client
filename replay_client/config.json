@@ -1,0 +1,10 @@
+{
+  "data_path": "../../data-replay/raw/game-events.jsonl",
+  "save_path": "replay-edited.jsonl",
+  "asset_dir": "../client/assets",
+  "window_width": 1440,
+  "window_height": 900,
+  "tile_size": 34,
+  "map_columns": 20,
+  "map_rows": 15
+}

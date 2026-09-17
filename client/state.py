@@ -1,11 +1,10 @@
-"""Main-thread UI state and deliberately secret-free worker results."""
+"""Configuration and main-thread UI state."""
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
 from urllib.parse import urlsplit
 
-PLAYER_FIELDS = ('player_id', 'room_id', 'x', 'y', 'coins', 'version')
-DELIVERY_FIELDS = ('source', 'event_count', 'pending_publish_count')
+from messages import DELIVERY_FIELDS, PLAYER_FIELDS, Request, Result
 
 @dataclass(frozen=True)
 class Config:
@@ -59,28 +58,6 @@ class Config:
             hero_path=configured_path('hero_path'),
             font_path=configured_path('font_path', optional=True),
         )
-
-@dataclass
-class Request:
-    kind: str
-    username: str = field(default='', repr=False)
-    password: str = field(default='', repr=False)
-    direction: str = ''
-    action: str = 'move'
-
-@dataclass(frozen=True)
-class Result:
-    kind: str
-    message: str = ''
-    player: dict | None = None
-    players: tuple = ()
-    ws_json: dict | None = None
-    delivery: dict | None = None
-    api_path: str = ''
-    status: int | None = None
-    needs_login: bool = False
-    direction: str = ''
-    action: str = ''
 
 @dataclass
 class State:

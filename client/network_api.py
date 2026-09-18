@@ -18,7 +18,8 @@ class ApiClient:
         self._validator = validator
         self._result_sink = result_sink
 
-    async def _get(self, path: str, validate: Callable[[dict], dict]) -> dict:
+    async def _get(self, path: str, validate: Callable[[dict], dict],
+                   unavailable_message: str = '') -> dict:
         status = None
         safe = None
         try:
@@ -31,6 +32,8 @@ class ApiClient:
                 if status == 403:
                     raise Failure('접속 거부: 서버의 CSRF / Origin 설정을 확인하세요.')
                 if not 200 <= status < 300:
+                    if status == 503 and unavailable_message:
+                        raise Failure(unavailable_message)
                     raise Failure(f'서버 요청 실패 (HTTP {status}).')
                 if response.content_type != 'application/json' and not (
                         response.content_type.startswith('application/')
@@ -61,6 +64,14 @@ class ApiClient:
     async def get_analytics(self) -> dict:
         return await self._get(
             '/api/analytics/actions/', self._validator.validate_analytics)
+
+    async def get_ingest(self) -> dict:
+        return await self._get(
+            '/api/analytics/ingest/', self._validator.validate_ingest,
+            '마지막 수집 통계를 읽을 수 없음')
+
+    async def get_ingest_analytics(self) -> dict:
+        return await self.get_ingest()
 
     async def get_history(self) -> dict:
         return await self._get('/api/history/', self._validator.validate_history)

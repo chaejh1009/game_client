@@ -32,7 +32,7 @@
 
 ```text
 busy/closing/command_pending이면 False
-player/history/logout이고 delivery 또는 패널 요청 중이면 False
+player/history/logout이고 delivery 또는 통계·ingest·이력 패널 요청 중이면 False
 login이면 username/password 검사
     Request(kind, trimmed username, password) 생성
     두 패널 clear
@@ -75,6 +75,17 @@ True 반환
 
 최초 조회와 미생성·오류 뒤 재조회는 이 메서드만 사용한다. `pending` 상태가 프레임 중복 요청과 연속 클릭을 막는다.
 
+### `request_ingest(self) -> bool`
+
+```text
+AnalyticsPanelPort.begin_ingest(authenticated, closing)이 거부하면 False
+이력 패널 숨김
+NetworkPort.submit(Request('ingest'))
+True 반환
+```
+
+`통계 다시 읽기` 버튼의 유일한 진입점이다. 이미 게시된 결과를 읽는 GET만 worker에 제출하고, `ingest_pending`으로 프레임 반복과 연속 클릭을 막는다.
+
 ### `toggle_analytics(self) -> None`
 
 ```text
@@ -86,7 +97,7 @@ True 반환
 
 ```text
 이력 패널이 보이면 hide()
-아니고 통계 요청이 진행 중이 아니면:
+아니고 통계 또는 ingest 요청이 진행 중이 아니면:
     통계 패널 hide()
     이력 패널 show()
 ```

@@ -12,11 +12,14 @@
 - `available`, `source_topic`, `source_kind`, `raw_record_count`: `Result(kind='analytics').player`에서 온 검증된 최상위 값.
 - `generated_at`, `event_count`, `by_action`, `by_room`: 검증된 `summary`에서 온 snapshot 값.
 - `message`, `error`: 진행·미생성·성공·오류를 구분하는 표시 문자열.
+- `ingest_pending`, `ingest_available`, `ingest_source`, `ingest_generated_at`: `Result(kind='ingest').player`의 Kafka 수집 snapshot 상태.
+- `ingest_record_count`, `ingest_event_count`, `ingest_duplicate_record_count`, `ingest_by_action`: 검증된 수집 레코드·고유 사건·재전달 레코드·`event_type`별 목록.
+- `ingest_message`, `ingest_error`: 수집 snapshot 준비·성공·오류 안내.
 
 ### `begin(self, authenticated: bool, closing: bool) -> bool`
 
 ```text
-미인증, 종료 중, 기존 pending이면 False
+미인증, 종료 중, 행동 집계 또는 ingest 기존 pending이면 False
 visible=True, pending=True, 읽는 중 메시지 설정
 이전 오류 문자열 제거
 True
@@ -25,7 +28,16 @@ True
 ### `hide(self) -> None`
 
 ```text
-pending이 아닐 때만 visible=False
+행동 집계와 ingest 어느 쪽도 pending이 아닐 때만 visible=False
+```
+
+### `begin_ingest(self, authenticated: bool, closing: bool) -> bool`
+
+```text
+미인증, 종료 중, 행동 집계 또는 기존 ingest pending이면 False
+visible=True, ingest_pending=True, 수집 통계 읽는 중 메시지 설정
+이전 ingest 오류 문자열 제거
+True
 ```
 
 ### `clear(self) -> None`
@@ -44,6 +56,11 @@ analytics이면:
     available=True면 source 정보, raw_record_count와 summary snapshot 저장
     True
 analytics_error이면 pending 해제, 오류 메시지 저장, 기존 성공 snapshot은 보존, True
+ingest이면 ingest_pending 해제
+    available=False면 수치 필드를 비우고 reason을 친절한 준비 안내로 변환
+    available=True면 source/generated_at/세 카운트와 event_type별 목록 저장
+    True
+ingest_error이면 ingest_pending 해제, 오류 메시지 저장, 기존 수집 snapshot은 보존, True
 그 외 False
 ```
 
@@ -104,4 +121,4 @@ history_error이면 pending 해제, 오류 메시지, False
 
 ## 패널 상호 배타성
 
-두 패널은 서로를 직접 알지 않는다. `controller.py`가 통계 패널을 열 때 이력을 숨기고, 이력 패널을 열 때 통계를 숨긴다. replay 상태는 없다.
+두 패널은 서로를 직접 알지 않는다. `controller.py`가 통계 또는 ingest 패널을 열 때 이력을 숨기고, 이력 패널을 열 때 통계를 숨긴다. replay 상태는 없다.

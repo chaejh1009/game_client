@@ -7,7 +7,7 @@
 ## 내부 helper
 
 - `_command_color`: 선택 명령과 상태에 따른 색상 계산
-- `_draw_commands`: 이동·채굴·수련·갱신·로그아웃 버튼 상태 출력
+- `_draw_commands`: 이동·채굴·수련·갱신·로그아웃 버튼 상태 출력. 행동 통계 또는 Kafka 수집 통계 요청 중에는 갱신·로그아웃을 비활성화한다.
 - `_draw_delivery`: 5초 cooldown과 전달 카운트 출력
 - `_draw_command_status`: 선택 명령과 결과 메시지 출력
 

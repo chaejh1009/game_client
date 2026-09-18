@@ -46,7 +46,7 @@ class RenderContractTests(unittest.TestCase):
             'username', 'password', 'login',
             'up', 'down', 'left', 'right', 'gather', 'train',
             'refresh', 'logout', 'delivery', 'analytics', 'history_panel',
-            'analytics_refresh', 'api_player', 'api_history',
+            'analytics_refresh', 'ingest_refresh', 'api_player', 'api_history',
         }
         self.assertEqual(expected, set(self.renderer.controls))
         for target in self.renderer.controls.values():
@@ -150,6 +150,97 @@ class RenderContractTests(unittest.TestCase):
         self.assertTrue(any('집계 조회 실패' in item for item in labels))
         self.assertNotIn('0', labels)
 
+    def test_room_list_remains_visible_after_kafka_card_is_drawn(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.analytics.visible = True
+        self.analytics.available = True
+        self.analytics.event_count = 210
+        self.analytics.raw_record_count = 230
+        self.analytics.by_action = (
+            {'action_label': '이동', 'count': 90},
+            {'action_label': '채굴', 'count': 80},
+            {'action_label': '수련', 'count': 40},
+        )
+        self.analytics.by_room = tuple(
+            {'room_id': f'room-{index}', 'count': index * 10}
+            for index in range(1, 7)
+        )
+        expected = {f'방 room-{index}' for index in range(1, 5)} | {'외 2개 방'}
+        view = self.renderer._view
+        original_text = view.text
+        rendered_rows = {}
+
+        def capture_room_text(value, pos, color=None, font=None):
+            if color is None:
+                original_text(value, pos, font=font)
+            else:
+                original_text(value, pos, color, font)
+            if str(value) in expected:
+                bounds = (font or view.font).render(str(value), True, (255, 255, 255))
+                bounds = bounds.get_rect(topleft=pos)
+                self.assertTrue(view.screen.get_clip().contains(bounds))
+                rendered_rows[str(value)] = (
+                    bounds, pygame.image.tobytes(view.screen.subsurface(bounds), 'RGB'))
+
+        view.text = capture_room_text
+        self.renderer.draw(state, self.analytics, self.history)
+
+        self.assertEqual(expected, set(rendered_rows))
+        for label, (bounds, pixels) in rendered_rows.items():
+            with self.subTest(label=label):
+                self.assertEqual(
+                    pixels, pygame.image.tobytes(view.screen.subsurface(bounds), 'RGB'),
+                    '방별 목록이 이후에 그려진 카드나 텍스트에 가려졌습니다.')
+
+    def test_ingest_panel_uses_published_snapshot_labels(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.analytics.visible = True
+        self.analytics.ingest_available = True
+        self.analytics.ingest_source = 'kafka-actions-v1'
+        self.analytics.ingest_generated_at = '2026-09-18T00:00:00+00:00'
+        self.analytics.ingest_record_count = 24
+        self.analytics.ingest_event_count = 15
+        self.analytics.ingest_duplicate_record_count = 3
+        self.analytics.ingest_by_action = (
+            {'event_type': 'player.moved', 'count': 11},
+        )
+        labels = []
+        buttons = []
+        self.renderer._view.text = (
+            lambda value, *_args, **_kwargs: labels.append(str(value)))
+        self.renderer._view.button = (
+            lambda name, label, *_args, **_kwargs: buttons.append((name, label)))
+
+        self.renderer.draw(state, self.analytics, self.history)
+
+        self.assertIn('Kafka 수집 통계', labels)
+        self.assertIn('수집 레코드', labels)
+        self.assertIn('고유 사건', labels)
+        self.assertIn('재전달 레코드', labels)
+        self.assertIn(('ingest_refresh', '통계 다시 읽기'), buttons)
+        self.assertTrue(any('이미 게시된 결과를 읽습니다' in item for item in labels))
+
+    def test_ingest_missing_and_error_are_not_rendered_as_zero(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.analytics.visible = True
+        self.analytics.apply(Result('ingest', player={
+            'available': False, 'reason': 'summary_not_created',
+        }))
+        labels = []
+        self.renderer._view.text = (
+            lambda value, *_args, **_kwargs: labels.append(str(value)))
+
+        self.renderer.draw(state, self.analytics, self.history)
+
+        self.assertTrue(any('생성되지 않았습니다' in item for item in labels))
+        self.assertNotIn('0', labels)
+
+        self.analytics.apply(Result('ingest_error', '마지막 수집 통계를 읽을 수 없음'))
+        labels.clear()
+        self.renderer.draw(state, self.analytics, self.history)
+        self.assertTrue(any('마지막 수집 통계를 읽을 수 없음' in item for item in labels))
+        self.assertNotIn('0', labels)
+
     def test_render_modules_do_not_import_other_concrete_layers(self):
         forbidden = {
             'controller', 'network', 'network_api', 'network_auth', 'network_ws',
@@ -189,10 +280,17 @@ class AnalyticsRequestRoutingTests(unittest.TestCase):
 
         controller.apply_result(Result('analytics', player={'available': False}))
         self.assertIn('analytics_refresh', app._control_names())
+        self.assertIn('ingest_refresh', app._control_names())
         self.assertEqual(['analytics'], [item.kind for item in worker.requests])
 
-        self.assertTrue(controller.request_analytics())
-        self.assertEqual(['analytics', 'analytics'],
+        self.assertTrue(controller.request_ingest())
+        self.assertFalse(controller.request_ingest())
+        self.assertEqual(['analytics', 'ingest'], [item.kind for item in worker.requests])
+        controller.apply_result(Result('ingest', player={
+            'available': False, 'reason': 'summary_not_created',
+        }))
+        self.assertTrue(controller.request_ingest())
+        self.assertEqual(['analytics', 'ingest', 'ingest'],
                          [item.kind for item in worker.requests])
 
 

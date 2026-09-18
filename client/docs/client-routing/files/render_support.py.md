@@ -26,7 +26,7 @@ _prepare_layout으로 map/slot/control/API panel Rect 계산
 
 ### `_prepare_layout()`
 
-기존 좌표로 `map_rect`, `slots`, `api_panel`, `controls`를 만든다. 통계 overlay의 명시적 재조회용 `analytics_refresh` hitbox도 여기서 고정한다. `controls`의 Pygame Rect는 `HitTargetPort.collidepoint` 계약을 구조적으로 만족한다.
+기존 좌표로 `map_rect`, `slots`, `api_panel`, `controls`를 만든다. 통계 overlay의 명시적 재조회용 `analytics_refresh`와 Kafka 수집 통계 `ingest_refresh` hitbox도 여기서 고정한다. `controls`의 Pygame Rect는 `HitTargetPort.collidepoint` 계약을 구조적으로 만족한다.
 
 ### 출력 primitive
 

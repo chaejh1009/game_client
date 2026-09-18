@@ -144,6 +144,54 @@ class ResponseValidator:
             },
         }
 
+    def validate_ingest(self, data: dict) -> dict:
+        """Project the published Kafka-ingest snapshot into display-safe fields."""
+        available = data.get('available')
+        if type(available) is not bool:
+            raise Failure('ingest 응답의 available을 확인하세요.')
+        if not available:
+            reason = data.get('reason', '')
+            if not isinstance(reason, str) or len(reason) > 160:
+                raise Failure('ingest 응답의 reason을 확인하세요.')
+            return {'available': False, 'reason': reason}
+
+        source = data.get('source')
+        generated_at = data.get('generated_at')
+        if not isinstance(source, str) or not source or len(source) > 160:
+            raise Failure('ingest 응답의 source를 확인하세요.')
+        if (not isinstance(generated_at, str) or not generated_at
+                or len(generated_at) > 120):
+            raise Failure('ingest 응답의 generated_at을 확인하세요.')
+        counts = {}
+        for field_name in ('record_count', 'event_count', 'duplicate_record_count'):
+            value = data.get(field_name)
+            if type(value) is not int or value < 0:
+                raise Failure(f'ingest 응답의 {field_name}을 확인하세요.')
+            counts[field_name] = value
+        rows = data.get('by_action')
+        if not isinstance(rows, list) or len(rows) > 100:
+            raise Failure('ingest 응답의 by_action 형식을 확인하세요.')
+        by_action = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise Failure('ingest 응답의 by_action 행을 확인하세요.')
+            event_type = row.get('event_type')
+            count = row.get('count')
+            if (not isinstance(event_type, str) or not event_type
+                    or len(event_type) > 80 or type(count) is not int or count < 0):
+                raise Failure('ingest 응답의 by_action 행을 확인하세요.')
+            by_action.append({'event_type': event_type, 'count': count})
+        return {
+            'available': True,
+            'source': source,
+            'generated_at': generated_at,
+            **counts,
+            'by_action': by_action,
+        }
+
+    def validate_ingest_analytics(self, data: dict) -> dict:
+        return self.validate_ingest(data)
+
     def validate_history(self, data: dict) -> dict:
         scope = data.get('scope')
         limit = data.get('limit')

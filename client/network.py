@@ -71,6 +71,7 @@ class NetworkWorker:
             active = None
             delivery_task = None
             analytics_task = None
+            ingest_task = None
             history_task = None
             try:
                 while True:
@@ -83,6 +84,9 @@ class NetworkWorker:
                     if analytics_task is not None and analytics_task.done():
                         await analytics_task
                         analytics_task = None
+                    if ingest_task is not None and ingest_task.done():
+                        await ingest_task
+                        ingest_task = None
                     if history_task is not None and history_task.done():
                         await history_task
                         history_task = None
@@ -109,6 +113,14 @@ class NetworkWorker:
                             self.results.put(Result(
                                 'analytics_error', '통계 읽기 요청이 이미 진행 중입니다.'))
                         continue
+                    if request.kind == 'ingest':
+                        if ingest_task is None:
+                            ingest_task = asyncio.create_task(
+                                self._dispatch(request, auth, api, game_socket))
+                        else:
+                            self.results.put(Result(
+                                'ingest_error', '수집 통계 요청이 이미 진행 중입니다.'))
+                        continue
                     if request.kind == 'history':
                         if history_task is None:
                             history_task = asyncio.create_task(
@@ -127,12 +139,15 @@ class NetworkWorker:
                                 direction=request.direction, action=request.action))
                         request.password = request.username = ''
             finally:
-                for task in (active, delivery_task, analytics_task, history_task):
+                for task in (
+                        active, delivery_task, analytics_task, ingest_task,
+                        history_task):
                     if task is not None:
                         task.cancel()
                 await asyncio.gather(
                     *(task for task in (
-                        active, delivery_task, analytics_task, history_task)
+                        active, delivery_task, analytics_task, ingest_task,
+                        history_task)
                       if task is not None),
                     return_exceptions=True)
                 await game_socket.shutdown()
@@ -173,6 +188,12 @@ class NetworkWorker:
                 analytics = await api.get_analytics()
                 self.results.put(Result(
                     'analytics', '저장된 통계를 읽었습니다.', player=analytics))
+            elif request.kind == 'ingest':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                ingest = await api.get_ingest()
+                self.results.put(Result(
+                    'ingest', 'Kafka 수집 통계를 읽었습니다.', player=ingest))
             elif request.kind == 'history':
                 if not self._authenticated:
                     raise Failure('먼저 로그인하세요.', True)
@@ -217,6 +238,8 @@ class NetworkWorker:
                 kind = 'delivery_error'
             elif request.kind == 'analytics':
                 kind = 'analytics_error'
+            elif request.kind == 'ingest':
+                kind = 'ingest_error'
             elif request.kind == 'history':
                 kind = 'history_error'
             else:

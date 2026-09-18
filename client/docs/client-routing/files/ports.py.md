@@ -40,7 +40,11 @@ apply(result: Result) -> None
 visible/pending/available
 source_topic/source_kind/generated_at/event_count/raw_record_count
 by_action/by_room/message/error
+ingest_pending/ingest_available/ingest_source/ingest_generated_at
+ingest_record_count/ingest_event_count/ingest_duplicate_record_count
+ingest_by_action/ingest_message/ingest_error
 begin(authenticated, closing) -> bool
+begin_ingest(authenticated, closing) -> bool
 hide() -> None
 clear() -> None
 apply(result: Result) -> bool
@@ -88,6 +92,7 @@ command_failure(data) -> Exception
 validate_player(data) -> dict
 validate_delivery(data) -> dict
 validate_analytics(data) -> dict
+validate_ingest(data) -> dict
 validate_history(data) -> dict
 ```
 
@@ -111,6 +116,7 @@ ApiClientFactoryPort(session, origin, validator, result_sink) -> ApiClientPort
 ApiClientPort.get_player() -> await dict
 ApiClientPort.get_delivery() -> await dict
 ApiClientPort.get_analytics() -> await dict
+ApiClientPort.get_ingest() -> await dict
 ApiClientPort.get_history() -> await dict
 ```
 
@@ -163,6 +169,7 @@ submit(kind) -> bool
 request_command(action, direction='') -> bool
 request_delivery() -> bool
 request_analytics() -> bool
+request_ingest() -> bool
 toggle_analytics() -> None
 toggle_history() -> None
 request_history() -> None

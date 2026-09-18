@@ -93,12 +93,12 @@ AuthFactoryPort(session, origin) -> AuthPort
 ApiClientFactoryPort(session, origin, validator, result sink) -> ApiClientPort
 GameSocketFactoryPort(session, origin, validator, result sink) -> GameSocketPort
 
-active, delivery_task, analytics_task, history_task 슬롯 유지
+active, delivery_task, analytics_task, ingest_task, history_task 슬롯 유지
 반복:
     완료 task await 후 슬롯 비우기
     request가 없으면 worker만 0.02초 yield
     stop이면 종료
-    delivery/analytics/history는 각 전용 task 한 개만 허용
+    delivery/analytics/ingest/history는 각 전용 task 한 개만 허용
     일반 active는 한 개만 허용
     active 중 command가 오면 command_error 출력
     처리하지 않은 request credential 제거
@@ -129,6 +129,7 @@ login:
 player -> 인증 검사, ApiClientPort.get_player(), Result('player')
 delivery -> 인증 검사, ApiClientPort.get_delivery(), Result('delivery')
 analytics -> 인증 검사, ApiClientPort.get_analytics(), Result('analytics')
+ingest -> 인증 검사, ApiClientPort.get_ingest(), Result('ingest')
 history -> 인증 검사, ApiClientPort.get_history(), Result('history')
 logout -> GameSocketPort.close(), AuthPort.logout(), AuthPort.clear(), Result('logged_out')
 command -> GameSocketPort.command(action, direction), Result('command')
@@ -145,8 +146,8 @@ finally:
 
 - UI thread는 네트워크를 기다리지 않는다.
 - 로그인·명령·갱신·로그아웃은 일반 active 슬롯을 공유한다.
-- delivery, analytics, history는 각각 독립 task 하나를 허용한다.
+- delivery, analytics, ingest, history는 각각 독립 task 하나를 허용한다.
+- ingest는 사용자가 누른 재조회에만 실행되며 이미 게시된 결과를 GET으로 읽고 Spark/Kafka 연결을 만들지 않는다.
 - 수련 성공 뒤 history 요청을 자동 제출한다.
 - 모든 외부 응답은 검증된 `Result`로만 상위 계층에 전달한다.
 - replay 요청이나 task는 없다.
-

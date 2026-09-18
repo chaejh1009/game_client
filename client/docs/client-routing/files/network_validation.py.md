@@ -88,6 +88,21 @@ summary.by_room은 room_id/count로 검증
 
 추가 최상위 필드, summary 내부 필드, 각 행의 추가 필드는 반환 객체에서 제거한다. 인증 정보나 원문 응답은 보존하지 않는다.
 
+### `validate_ingest(self, data: dict) -> dict`
+
+```text
+available bool 검사
+False이면 reason 생략은 빈 문자열로 처리하고, 값이 있으면 빈 문자열을 포함한 최대 160자 문자열만 허용
+null/숫자/bool/list/object와 160자 초과 문자열은 Failure로 거부
+검증을 통과한 미생성 응답은 {'available': False, 'reason': ...} 반환
+True이면 source/generated_at 문자열과 record_count/event_count/
+duplicate_record_count 음이 아닌 정확한 int 검사
+by_action 각 행의 event_type 문자열과 count 정수 검사
+허용된 수집 snapshot 필드만 반환
+```
+
+available=false 응답의 카운트나 비허용 필드는 반환하지 않으므로 준비 전 상태를 실제 0건으로 표시하지 않는다. `raw_value`, `evidence`, 인증 정보 등 추가 필드는 안전 투영에서 제거한다. `validate_ingest_analytics`는 같은 검증을 호출하는 호환 별칭이다.
+
 ### `validate_history(self, data: dict) -> dict`
 
 ```text

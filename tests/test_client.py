@@ -15,6 +15,7 @@ from aiohttp import web
 from network import NetworkWorker
 from network_api import ApiClient
 from network_auth import DjangoAuth
+from network_errors import Failure
 from network_validation import ResponseValidator
 from network_ws import GameSocketClient
 from panels import AnalyticsPanelState
@@ -32,6 +33,31 @@ def make_worker(origin):
         GameSocketClient,
         ResponseValidator(),
     )
+
+class IngestValidationTests(unittest.TestCase):
+    def test_unavailable_reason_accepts_omitted_or_bounded_string(self):
+        validator = ResponseValidator()
+        for fields, expected in (
+                ({}, ''),
+                ({'reason': ''}, ''),
+                ({'reason': 'summary_not_created'}, 'summary_not_created'),
+                ({'reason': '가' * 160}, '가' * 160)):
+            with self.subTest(fields=fields):
+                self.assertEqual(
+                    validator.validate_ingest({
+                        'available': False, 'record_count': 0, **fields,
+                    }),
+                    {'available': False, 'reason': expected},
+                )
+
+    def test_unavailable_reason_rejects_non_strings_and_overlong_string(self):
+        validator = ResponseValidator()
+        for reason in (None, 0, False, [], {}, 1, True, ['not_ready'],
+                       {'reason': 'not_ready'}, '가' * 161):
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(Failure, 'ingest 응답의 reason'):
+                    validator.validate_ingest({'available': False, 'reason': reason})
+
 
 class ContractTests(unittest.TestCase):
     @classmethod
@@ -202,6 +228,51 @@ class ContractTests(unittest.TestCase):
                         'by_room': [{'room_id': 'room-01', 'count': 15}],
                         'source': 'must-not-display',
                     },
+                    'csrfToken': 'must-not-display',
+                })
+            if req.path == '/api/analytics/ingest/':
+                assert req.cookies.get('sessionid')
+                assert req.cookies['csrftoken'] == 'rotated'
+                if cls.mode == 'slow_ingest':
+                    await asyncio.sleep(0.25)
+                if cls.mode == 'ingest_false':
+                    return web.json_response({
+                        'available': False,
+                        'reason': 'summary_not_created',
+                        'record_count': 0,
+                        'event_count': 0,
+                        'duplicate_record_count': 0,
+                        'password': 'must-not-display',
+                    })
+                if cls.mode == 'ingest_html':
+                    return web.Response(text='<html>private ingest</html>',
+                                        content_type='text/html')
+                if cls.mode == 'ingest_503':
+                    return web.Response(status=503, text='not ready')
+                if cls.mode in ('ingest_302', 'ingest_401'):
+                    status = int(cls.mode.removeprefix('ingest_'))
+                    return web.Response(status=status, headers={'Location': '/trap'})
+                if cls.mode == 'ingest_schema':
+                    return web.json_response({
+                        'available': True,
+                        'source': 'kafka',
+                        'generated_at': '2026-09-15T03:04:05+00:00',
+                        'record_count': 20,
+                        'password': 'must-not-display',
+                    })
+                return web.json_response({
+                    'available': True,
+                    'source': 'kafka-actions-v1',
+                    'generated_at': '2026-09-15T03:04:05+00:00',
+                    'record_count': 24,
+                    'event_count': 15,
+                    'duplicate_record_count': 3,
+                    'by_action': [
+                        {'event_type': 'player.moved', 'count': 11,
+                         'raw_value': 'must-not-display'},
+                        {'event_type': 'player.gathered', 'count': 4},
+                    ],
+                    'evidence': 'must-not-display',
                     'csrfToken': 'must-not-display',
                 })
             raise AssertionError('Unexpected route / redirect followed')
@@ -521,6 +592,87 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(any(result.kind == 'command_error' for result in results))
         analytics, _ = self.results_until('analytics')
         self.assertEqual(analytics.player['summary']['event_count'], 15)
+
+    def test_ingest_stats_allowlist_statuses_and_no_synthetic_zero(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        self.assertNotIn(('GET', '/api/analytics/ingest/'), self.calls)
+        panel = AnalyticsPanelState()
+        self.assertTrue(panel.begin_ingest(True, False))
+        self.worker.submit(Request('ingest'))
+        result, results = self.results_until('ingest')
+        api_result = next(item for item in results
+                          if item.kind == 'api'
+                          and item.api_path == '/api/analytics/ingest/')
+        self.assertEqual(result.player, {
+            'available': True,
+            'source': 'kafka-actions-v1',
+            'generated_at': '2026-09-15T03:04:05+00:00',
+            'record_count': 24,
+            'event_count': 15,
+            'duplicate_record_count': 3,
+            'by_action': [
+                {'event_type': 'player.moved', 'count': 11},
+                {'event_type': 'player.gathered', 'count': 4},
+            ],
+        })
+        self.assertEqual(api_result.player, result.player)
+        self.assertTrue(panel.apply(result))
+        self.assertEqual(panel.ingest_source, 'kafka-actions-v1')
+        self.assertEqual(panel.ingest_record_count, 24)
+        self.assertEqual(panel.ingest_event_count, 15)
+        self.assertEqual(panel.ingest_duplicate_record_count, 3)
+        self.assertEqual(panel.ingest_by_action[0], {
+            'event_type': 'player.moved', 'count': 11,
+        })
+        self.assertNotIn('must-not-display', repr(results))
+
+        panel.hide()
+        self.assertTrue(panel.begin_ingest(True, False))
+        type(self).mode = 'ingest_false'
+        self.worker.submit(Request('ingest'))
+        result, _ = self.results_until('ingest')
+        self.assertTrue(panel.apply(result))
+        self.assertFalse(panel.ingest_available)
+        self.assertIsNone(panel.ingest_record_count)
+        self.assertIsNone(panel.ingest_event_count)
+        self.assertIsNone(panel.ingest_duplicate_record_count)
+        self.assertIn('생성되지 않았습니다', panel.ingest_message)
+
+    def test_ingest_stats_reject_html_schema_503_and_auth_redirect(self):
+        for mode in ('ingest_html', 'ingest_schema', 'ingest_503',
+                     'ingest_302', 'ingest_401'):
+            with self.subTest(mode=mode):
+                type(self).mode = 'ok'
+                self.assertEqual(self.login()[0].kind, 'player')
+                type(self).mode = mode
+                self.worker.submit(Request('ingest'))
+                result, results = self.results_until('ingest_error')
+                if mode == 'ingest_html':
+                    self.assertIn('JSON 응답이 아닙니다', result.message)
+                    self.assertNotIn('<html>', repr(results))
+                elif mode == 'ingest_schema':
+                    self.assertIn('ingest 응답의 event_count', result.message)
+                    self.assertNotIn('must-not-display', repr(results))
+                elif mode == 'ingest_503':
+                    self.assertEqual(result.message, '마지막 수집 통계를 읽을 수 없음')
+                else:
+                    self.assertTrue(result.needs_login)
+                    self.assertIn('로그인이 필요합니다', result.message)
+                    self.assertNotIn(('GET', '/trap'), self.calls)
+                if mode in ('ingest_html', 'ingest_schema'):
+                    self.worker.submit(Request('logout'))
+                    self.assertEqual(self.result()[0].kind, 'logged_out')
+
+    def test_ingest_read_does_not_block_movement(self):
+        self.assertEqual(self.login()[0].kind, 'player')
+        type(self).mode = 'slow_ingest'
+        self.worker.submit(Request('ingest'))
+        self.worker.submit(Request('command', direction='right'))
+        command, results = self.results_until('command')
+        self.assertEqual(command.player['x'], PLAYER['x'] + 1)
+        self.assertFalse(any(result.kind == 'command_error' for result in results))
+        ingest, _ = self.results_until('ingest')
+        self.assertEqual(ingest.player['event_count'], 15)
 
     def test_login_focus_blocks_movement(self):
         state = State(focus='username')

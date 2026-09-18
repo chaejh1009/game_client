@@ -68,8 +68,20 @@ class AnalyticsPanelPort(Protocol):
     by_room: tuple
     message: str
     error: str
+    ingest_pending: bool
+    ingest_available: bool | None
+    ingest_source: str
+    ingest_generated_at: str
+    ingest_record_count: int | None
+    ingest_event_count: int | None
+    ingest_duplicate_record_count: int | None
+    ingest_by_action: tuple
+    ingest_message: str
+    ingest_error: str
 
     def begin(self, authenticated: bool, closing: bool) -> bool: ...
+
+    def begin_ingest(self, authenticated: bool, closing: bool) -> bool: ...
 
     def hide(self) -> None: ...
 
@@ -131,6 +143,8 @@ class ResponseValidatorPort(Protocol):
 
     def validate_analytics(self, data: dict) -> dict: ...
 
+    def validate_ingest(self, data: dict) -> dict: ...
+
     def validate_history(self, data: dict) -> dict: ...
 
 
@@ -152,6 +166,8 @@ class ApiClientPort(Protocol):
     async def get_delivery(self) -> dict: ...
 
     async def get_analytics(self) -> dict: ...
+
+    async def get_ingest(self) -> dict: ...
 
     async def get_history(self) -> dict: ...
 
@@ -203,6 +219,8 @@ class ControllerPort(Protocol):
     def request_delivery(self) -> bool: ...
 
     def request_analytics(self) -> bool: ...
+
+    def request_ingest(self) -> bool: ...
 
     def toggle_analytics(self) -> None: ...
 

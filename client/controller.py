@@ -20,6 +20,7 @@ class ClientController:
         if kind in ('player', 'history', 'logout') and (
                 state.delivery_pending
                 or self.analytics_panel.pending
+                or self.analytics_panel.ingest_pending
                 or self.history_panel.pending):
             return False
         if kind == 'login':
@@ -60,6 +61,14 @@ class ClientController:
         self.worker.submit(Request('analytics'))
         return True
 
+    def request_ingest(self) -> bool:
+        if not self.analytics_panel.begin_ingest(
+                self.state.authenticated, self.state.closing):
+            return False
+        self.history_panel.hide()
+        self.worker.submit(Request('ingest'))
+        return True
+
     def toggle_analytics(self) -> None:
         if self.analytics_panel.visible:
             self.analytics_panel.hide()
@@ -69,7 +78,8 @@ class ClientController:
     def toggle_history(self) -> None:
         if self.history_panel.visible:
             self.history_panel.hide()
-        elif not self.analytics_panel.pending:
+        elif (not self.analytics_panel.pending
+              and not self.analytics_panel.ingest_pending):
             self.analytics_panel.hide()
             self.history_panel.show()
 

@@ -44,6 +44,10 @@ class ClientApp:
                 and not self.analytics_panel.pending
                 and self.analytics_panel.available is not True):
             names += ('analytics_refresh',)
+        if (self.analytics_panel.visible
+                and not self.analytics_panel.pending
+                and not self.analytics_panel.ingest_pending):
+            names += ('ingest_refresh',)
         return names
 
     def _handle_mouse(self, event: Any, renderer: RendererPort) -> None:
@@ -64,6 +68,8 @@ class ClientApp:
                 self.controller.toggle_analytics()
             elif name == 'analytics_refresh':
                 self.controller.request_analytics()
+            elif name == 'ingest_refresh':
+                self.controller.request_ingest()
             elif name == 'history_panel':
                 self.controller.toggle_history()
             elif name == 'api_player':

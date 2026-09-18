@@ -1,7 +1,7 @@
 # Client routing
 
 이 문서는 `python client/main.py`로 실행되는 pygame 클라이언트의 탐색 진입점이다.
-책임 분리와 행동 통계 패널 작업이 기존 계약을 깨지 않도록 현재 호출 경계를 기록한다.
+책임 분리와 행동 통계·Kafka 수집 통계 패널 작업이 기존 계약을 깨지 않도록 현재 호출 경계를 기록한다.
 
 ## 범위
 
@@ -58,7 +58,7 @@ network.py
   -> AuthFactoryPort -> AuthPort -> network_auth.py
      -> /accounts/login/, /accounts/logout/
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
-     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/history/
+     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/analytics/ingest/, /api/history/
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
@@ -74,12 +74,12 @@ network.py
 - `messages.py`: `Request`, `Result`와 허용 필드 상수만 정의하며 상태나 I/O를 갖지 않는다.
 - `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·검증 구현은 포트로 호출한다.
 - `network_auth.py`: Django form/CSRF/cookie 계약만 안다.
-- `network_api.py`: 네 JSON endpoint와 JSON transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
+- `network_api.py`: 다섯 JSON endpoint와 JSON transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_ws.py`: `/ws/play/`, broadcast, `command_id` waiter만 알고 응답 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_validation.py`: 외부 데이터 검증과 안전 투영만 하며 네트워크 I/O를 하지 않는다.
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
-- `panels.py`: 패널별 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다.
+- `panels.py`: 행동 집계·Kafka 수집 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다.
 - `render.py`: `RendererPort` façade로서 장면만 선택하고 frame을 표시한다.
 - `render_support.py`: 상태를 모르며 pygame 자산, 배치, hitbox와 공통 출력만 소유한다.
 - `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
@@ -107,6 +107,9 @@ network.py
 - 플레이어 병합은 `player_id`별 `version`이 낮은 상태로 되돌아가지 않는다.
 - 최근 행동 이력 패널과 `/api/history/` 검사 기능을 유지한다.
 - 행동 통계 패널은 사용자가 조회를 요청했을 때 읽은 `/api/analytics/actions/`의 고정 snapshot만 표시한다.
+- Kafka 수집 통계는 사용자가 `통계 다시 읽기`를 눌렀을 때만 같은 ClientSession worker가 `GET /api/analytics/ingest/`로 이미 게시된 결과를 읽는다. Spark 실행이나 Kafka 연결은 만들지 않는다.
+- 수집 통계 응답은 queue로 메인 스레드에 전달하고 Pygame 메인 스레드가 텍스트·Rect·Surface를 그린다. GUI 루프는 네트워크 대기·`time.sleep()`을 수행하지 않는다.
+- 수집 통계가 없을 때 숫자 0을 합성하지 않으며, 503은 `마지막 수집 통계를 읽을 수 없음`, 302/401은 로그인 안내로 표시한다. 원문 `raw_value`·evidence 파일과 인증 정보는 접속기에 전달하거나 표시하지 않는다.
 - replay 기능과 replay 호출 경로는 만들지 않는다.
 - 서버 코드와 API/WS 계약은 이 문서화 단계의 변경 대상이 아니다.
 

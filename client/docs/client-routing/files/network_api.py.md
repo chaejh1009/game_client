@@ -52,12 +52,13 @@ _get('/api/delivery/', validator.validate_delivery)
 ### `get_analytics(self) -> dict` (`async`)
 
 ```text
-_get('/api/analytics/', validator.validate_analytics)
+_get('/api/analytics/actions/', validator.validate_analytics)
 ```
+
+사용자의 명시적 조회 요청에만 호출하며 GET 이외의 메서드, Spark 실행 요청, Kafka 연결을 만들지 않는다.
 
 ### `get_history(self) -> dict` (`async`)
 
 ```text
 _get('/api/history/', validator.validate_history)
 ```
-

@@ -52,12 +52,19 @@ class ClientController:
         self.worker.submit(Request('delivery'))
         return True
 
+    def request_analytics(self) -> bool:
+        if not self.analytics_panel.begin(
+                self.state.authenticated, self.state.closing):
+            return False
+        self.history_panel.hide()
+        self.worker.submit(Request('analytics'))
+        return True
+
     def toggle_analytics(self) -> None:
         if self.analytics_panel.visible:
             self.analytics_panel.hide()
-        elif self.analytics_panel.begin(self.state.authenticated, self.state.closing):
-            self.history_panel.hide()
-            self.worker.submit(Request('analytics'))
+        else:
+            self.request_analytics()
 
     def toggle_history(self) -> None:
         if self.history_panel.visible:

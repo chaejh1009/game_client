@@ -59,12 +59,15 @@ class AnalyticsPanelPort(Protocol):
     visible: bool
     pending: bool
     available: bool | None
-    schema_version: int | None
+    source_topic: str
+    source_kind: str
     generated_at: str
     event_count: int | None
+    raw_record_count: int | None
     by_action: tuple
     by_room: tuple
     message: str
+    error: str
 
     def begin(self, authenticated: bool, closing: bool) -> bool: ...
 
@@ -198,6 +201,8 @@ class ControllerPort(Protocol):
     def request_command(self, action: str, direction: str = '') -> bool: ...
 
     def request_delivery(self) -> bool: ...
+
+    def request_analytics(self) -> bool: ...
 
     def toggle_analytics(self) -> None: ...
 

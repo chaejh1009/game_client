@@ -41,6 +41,7 @@ pygame 초기화나 worker 시작은 아직 하지 않음
 ```text
 미인증이면 username/password/login control 반환
 인증이면 게임 명령, 조회, 로그아웃, 패널 control 반환
+통계 패널이 미생성 또는 최초 오류 상태이면 analytics_refresh control 추가
 ```
 
 ### `_handle_mouse(self, event, renderer) -> None`
@@ -50,6 +51,7 @@ pygame 초기화나 worker 시작은 아직 하지 않음
 RendererPort.controls[name]과 event.pos 충돌 검사
 입력 필드면 State.focus 변경
 게임/조회/패널 control이면 대응 ClientController 메서드 호출
+analytics_refresh이면 request_analytics 호출
 refresh는 submit('player'), logout/login은 해당 kind submit
 ```
 

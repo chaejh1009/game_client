@@ -58,7 +58,7 @@ network.py
   -> AuthFactoryPort -> AuthPort -> network_auth.py
      -> /accounts/login/, /accounts/logout/
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
-     -> /api/player/, /api/delivery/, /api/analytics/, /api/history/
+     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/history/
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
@@ -106,7 +106,7 @@ network.py
 - 다른 플레이어 broadcast는 자기 명령 완료로 취급하지 않는다.
 - 플레이어 병합은 `player_id`별 `version`이 낮은 상태로 되돌아가지 않는다.
 - 최근 행동 이력 패널과 `/api/history/` 검사 기능을 유지한다.
-- 행동 통계 패널은 `/api/analytics/`의 확정 집계만 표시한다.
+- 행동 통계 패널은 사용자가 조회를 요청했을 때 읽은 `/api/analytics/actions/`의 고정 snapshot만 표시한다.
 - replay 기능과 replay 호출 경로는 만들지 않는다.
 - 서버 코드와 API/WS 계약은 이 문서화 단계의 변경 대상이 아니다.
 

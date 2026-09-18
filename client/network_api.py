@@ -59,7 +59,8 @@ class ApiClient:
         return await self._get('/api/delivery/', self._validator.validate_delivery)
 
     async def get_analytics(self) -> dict:
-        return await self._get('/api/analytics/', self._validator.validate_analytics)
+        return await self._get(
+            '/api/analytics/actions/', self._validator.validate_analytics)
 
     async def get_history(self) -> dict:
         return await self._get('/api/history/', self._validator.validate_history)

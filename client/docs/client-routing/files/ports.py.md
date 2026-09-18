@@ -37,8 +37,9 @@ apply(result: Result) -> None
 ## `AnalyticsPanelPort`
 
 ```text
-visible/pending/available/schema_version/generated_at/event_count
-by_action/by_room/message
+visible/pending/available
+source_topic/source_kind/generated_at/event_count/raw_record_count
+by_action/by_room/message/error
 begin(authenticated, closing) -> bool
 hide() -> None
 clear() -> None
@@ -161,6 +162,7 @@ __call__(config: ConfigPort) -> RendererPort
 submit(kind) -> bool
 request_command(action, direction='') -> bool
 request_delivery() -> bool
+request_analytics() -> bool
 toggle_analytics() -> None
 toggle_history() -> None
 request_history() -> None

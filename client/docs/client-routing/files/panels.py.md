@@ -9,14 +9,16 @@
 ### 필드와 출처
 
 - `visible`, `pending`: `controller.py`의 토글/요청과 `apply`가 관리한다.
-- `available`, `schema_version`, `generated_at`, `event_count`, `by_action`, `by_room`: `Result(kind='analytics').player`에서 온 검증된 값.
-- `message`: 진행·빈 집계·성공·오류 표시 문자열.
+- `available`, `source_topic`, `source_kind`, `raw_record_count`: `Result(kind='analytics').player`에서 온 검증된 최상위 값.
+- `generated_at`, `event_count`, `by_action`, `by_room`: 검증된 `summary`에서 온 snapshot 값.
+- `message`, `error`: 진행·미생성·성공·오류를 구분하는 표시 문자열.
 
 ### `begin(self, authenticated: bool, closing: bool) -> bool`
 
 ```text
 미인증, 종료 중, 기존 pending이면 False
 visible=True, pending=True, 읽는 중 메시지 설정
+이전 오류 문자열 제거
 True
 ```
 
@@ -37,10 +39,11 @@ pending이 아닐 때만 visible=False
 ```text
 analytics이면:
     pending 해제
-    available=False면 집계 필드 비우고 빈 집계 메시지
-    available=True면 schema/generated/event_count/by_action/by_room 저장
+    오류 문자열 제거
+    available=False면 숫자를 0으로 만들지 않고 집계 필드를 비운 뒤 '행동 집계가 아직 없습니다' 설정
+    available=True면 source 정보, raw_record_count와 summary snapshot 저장
     True
-analytics_error이면 pending 해제, 오류 메시지 저장, True
+analytics_error이면 pending 해제, 오류 메시지 저장, 기존 성공 snapshot은 보존, True
 그 외 False
 ```
 

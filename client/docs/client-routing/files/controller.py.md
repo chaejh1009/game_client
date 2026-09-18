@@ -64,13 +64,22 @@ NetworkPort.submit(Request('delivery'))
 True 반환
 ```
 
+### `request_analytics(self) -> bool`
+
+```text
+AnalyticsPanelPort.begin(authenticated, closing)이 거부하면 False
+이력 패널 숨김
+NetworkPort.submit(Request('analytics'))
+True 반환
+```
+
+최초 조회와 미생성·오류 뒤 재조회는 이 메서드만 사용한다. `pending` 상태가 프레임 중복 요청과 연속 클릭을 막는다.
+
 ### `toggle_analytics(self) -> None`
 
 ```text
 통계 패널이 보이면 hide()
-아니고 begin(authenticated, closing)이 허용하면:
-    이력 패널 hide()
-    NetworkPort.submit(Request('analytics'))
+아니면 request_analytics()
 ```
 
 ### `toggle_history(self) -> None`

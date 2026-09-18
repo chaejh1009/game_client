@@ -149,6 +149,7 @@ python client/main.py
 | `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
 | `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
+| `GET /api/analytics/actions/` | 사용자가 조회 버튼을 누를 때만 읽는 고정 행동 집계. `available=true`이면 `source_topic`, `source_kind`, `raw_record_count`와 `summary.generated_at`, `summary.event_count`, `summary.by_action`, `summary.by_room`을 반환 |
 | `GET /api/history/` | 로그인한 플레이어의 최근 이벤트 20개. 이벤트의 `event_type`, `event_time`, `payload.transition.step`, `payload.transition.reward`를 수련 이력 패널에 표시하며 transition이 없는 과거 행도 허용합니다. |
 | `WS /ws/play/` | 로그인 세션으로 연결하고, 최초 player state와 `{type:"snapshot",players:[...]}` 및 방의 player state 방송을 계속 받습니다. 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}`, 수련은 `{type:"train",command_id}`만 전송합니다. 자기 player의 응답 중 일치하는 `command_id`만 대기 명령을 완료하고, 다른 player state는 대기 상태에 영향을 주지 않습니다. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
 | `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
@@ -157,7 +158,7 @@ python client/main.py
 
 교실 로컬 IP 쿠키를 받기 위해 worker loop 안에서 `CookieJar(unsafe=True)`를 만듭니다. 쿠키와 토큰은 프로세스별 메모리에만 존재합니다. 인증 요청/응답, 비밀번호, 쿠키, CSRF 토큰/헤더를 설정·파일·로그·API 패널에 저장하거나 출력하지 않습니다. 비밀번호는 제출 즉시 입력 필드에서 비우고 요청 완료/취소 시 참조를 제거합니다. Python 문자열의 물리적 메모리 덮어쓰기를 보장하는 구현은 아닙니다.
 
-API 패널은 `GET /api/player/`와 `GET /api/history/` 중 선택한 경로, status, 허용된 필드로 제한한 JSON만 표시합니다. 임의 경로 입력/요청 기능은 없으며 서버의 추가 필드와 오류 본문은 표시하지 않습니다. 수련 성공 뒤의 이력 조회도 같은 worker의 같은 `ClientSession`을 사용하고 결과만 queue로 메인 스레드에 전달합니다. 로그아웃 완료/실패 시 로컬 계정과 쿠키를 모두 비우고, 서버 로그아웃을 확인하지 못한 경우 이를 안내합니다.
+API 패널은 `GET /api/player/`와 `GET /api/history/` 중 선택한 응답 및 사용자가 요청한 `GET /api/analytics/actions/` 응답의 경로, status, 허용된 필드로 제한한 JSON만 표시합니다. 임의 경로 입력/요청 기능은 없으며 서버의 추가 필드와 오류 본문은 표시하지 않습니다. 행동 집계와 수련 이력 조회는 같은 worker의 같은 `ClientSession`을 사용하고 결과만 queue로 메인 스레드에 전달합니다. 로그아웃 완료/실패 시 로컬 계정과 쿠키를 모두 비우고, 서버 로그아웃을 확인하지 못한 경우 이를 안내합니다.
 
 창 종료 시 진행 중 작업을 취소하고 WS 및 ClientSession을 닫은 후 worker가 종료됩니다. 종료 화면에서도 이벤트 처리를 계속하며 UI에서 네트워크 대기나 `time.sleep()`을 하지 않습니다. 창 종료 자체가 서버 로그아웃 POST를 의미하지는 않습니다.
 

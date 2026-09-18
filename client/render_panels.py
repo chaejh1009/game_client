@@ -27,45 +27,90 @@ def draw_analytics_panel(view: RenderSupport,
     previous = view.screen.get_clip()
     view.screen.set_clip(rect.inflate(-4, -4))
     x, y = rect.x + 18, rect.y + 14
-    view.text('확정 이벤트 통계', (x, y), ACCENT, view.font)
+    view.text('행동 집계 snapshot', (x, y), ACCENT, view.font)
     if panel.pending:
         view.text('저장된 집계 결과를 읽는 중…', (x, y + 42), MUTED, view.small)
         view.screen.set_clip(previous)
         return
+    if panel.error and panel.available is not True:
+        view.wrapped(
+            panel.error,
+            x,
+            y + 42,
+            rect.width - 36,
+            color=ERROR,
+        )
+        view.button('analytics_refresh', '다시 조회', False)
+        view.screen.set_clip(previous)
+        return
     if panel.available is False:
-        view.text('아직 첫 집계가 없습니다', (x, y + 42), PENDING, view.font)
+        view.text('행동 집계가 아직 없습니다', (x, y + 42), PENDING, view.font)
+        view.button('analytics_refresh', '조회', False)
         view.screen.set_clip(previous)
         return
     if panel.available is not True:
-        view.text(panel.message or '통계를 읽지 않았습니다.', (x, y + 42), MUTED,
-                  view.small)
+        view.wrapped(
+            panel.message or '통계를 읽지 않았습니다.',
+            x,
+            y + 42,
+            rect.width - 36,
+            color=MUTED,
+        )
+        view.button('analytics_refresh', '다시 조회', False)
         view.screen.set_clip(previous)
         return
-    view.text(f'전체 확정 사실 {panel.event_count}', (x, y + 36), INK, view.font)
-    view.text(f'생성: {panel.generated_at}', (x, y + 64), MUTED, view.small)
-    view.text(f'schema {panel.schema_version}', (rect.right - 92, y + 16), MUTED,
-              view.small)
-    table_y = y + 100
-    column_width = (rect.width - 54) // 2
-    for index, (title, rows, label_key) in enumerate((
-        ('행동별', panel.by_action, 'event_type'),
-        ('방별', panel.by_room, 'room_id'),
+
+    view.text(f'topic: {panel.source_topic[:52]}', (x, y + 34), MUTED, view.small)
+    view.text(f'kind: {panel.source_kind[:52]}', (x, y + 54), MUTED, view.small)
+    view.text(f'생성: {panel.generated_at[:40]}', (x, y + 74), MUTED, view.small)
+
+    metric_y = y + 102
+    metric_width = (rect.width - 54) // 2
+    for index, (label, value) in enumerate((
+        ('고유 행동 수', panel.event_count),
+        ('원본 전달 행 수', panel.raw_record_count),
     )):
-        column_x = x + index * (column_width + 18)
-        view.text(title, (column_x, table_y), ACCENT, view.small)
-        header = pygame.Rect(column_x, table_y + 24, column_width, 24)
-        pygame.draw.rect(view.screen, CARD, header, border_radius=4)
-        view.text('항목', (header.x + 8, header.y + 4), MUTED, view.small)
-        view.text('count', (header.right - 52, header.y + 4), MUTED, view.small)
-        row_y = header.bottom + 4
-        for row in rows[:8]:
-            row_rect = pygame.Rect(column_x, row_y, column_width, 23)
-            pygame.draw.rect(view.screen, CARD, row_rect, width=1, border_radius=3)
-            view.text(str(row[label_key])[:22], (row_rect.x + 8, row_rect.y + 3),
-                      INK, view.small)
-            view.text(str(row['count']), (row_rect.right - 48, row_rect.y + 3), INK,
-                      view.small)
-            row_y += 25
+        metric = pygame.Rect(
+            x + index * (metric_width + 18), metric_y, metric_width, 48)
+        pygame.draw.rect(view.screen, CARD, metric, border_radius=7)
+        view.text(label, (metric.x + 10, metric.y + 7), MUTED, view.tiny)
+        view.text(str(value), (metric.x + 10, metric.y + 23), INK, view.font)
+
+    action_y = metric_y + 68
+    view.text('행동별', (x, action_y - 18), ACCENT, view.small)
+    card_gap = 8
+    card_width = (rect.width - 36 - card_gap * 2) // 3
+    for index in range(3):
+        card = pygame.Rect(
+            x + index * (card_width + card_gap), action_y, card_width, 54)
+        pygame.draw.rect(view.screen, CARD, card, border_radius=7)
+        if index < len(panel.by_action):
+            row = panel.by_action[index]
+            view.text(str(row['action_label'])[:18], (card.x + 8, card.y + 8),
+                      MUTED, view.tiny)
+            view.text(str(row['count']), (card.x + 8, card.y + 26), INK, view.font)
+        else:
+            view.text('집계 항목 없음', (card.x + 8, card.y + 18), MUTED, view.tiny)
+
+    room_y = action_y + 76
+    view.text('방별 행동 수', (x, room_y - 18), ACCENT, view.small)
+    for index, row in enumerate(panel.by_room[:4]):
+        row_y = room_y + index * 19
+        view.text(f"방 {str(row['room_id'])[:22]}", (x + 4, row_y), INK, view.small)
+        view.text(str(row['count']), (rect.right - 62, row_y), INK, view.small)
+    if not panel.by_room:
+        view.text('방별 집계 항목 없음', (x + 4, room_y), MUTED, view.small)
+    elif len(panel.by_room) > 4:
+        view.text(f'외 {len(panel.by_room) - 4}개 방', (x + 4, room_y + 76),
+                  MUTED, view.tiny)
+
+    if panel.error:
+        view.text(f'갱신 실패: {panel.error[:58]}', (x, rect.bottom - 58), ERROR,
+                  view.tiny)
+    view.text('접속자 수·잔액·현재 화면 이동 횟수와 다른 집계입니다.',
+              (x, rect.bottom - 40), MUTED, view.tiny)
+    view.text('고정 snapshot · 마지막 집계 기준',
+              (x, rect.bottom - 23), PENDING, view.tiny)
     view.screen.set_clip(previous)
 
 

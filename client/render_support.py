@@ -100,6 +100,12 @@ class RenderSupport:
                 (sidebar_width - 8) // 2,
                 36,
             ),
+            'analytics_refresh': pygame.Rect(
+                self.map_rect.x + 58,
+                self.map_rect.y + 132,
+                128,
+                32,
+            ),
         }
         self.api_panel = pygame.Rect(
             sidebar_x,

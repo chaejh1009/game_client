@@ -13,9 +13,15 @@ import aiohttp
 os.environ.setdefault('PYGAME_HIDE_SUPPORT_PROMPT', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
 
-from network import Failure, NetworkWorker
+from messages import Request, Result
+from network import NetworkWorker
+from network_api import ApiClient
+from network_auth import DjangoAuth
+from network_errors import Failure
+from network_validation import ResponseValidator
+from network_ws import GameSocketClient
 from panels import HistoryPanelState
-from state import Request, Result, State
+from state import State
 
 
 HISTORY = {
@@ -40,6 +46,16 @@ HISTORY = {
     }],
     'username': 'must-not-display',
 }
+
+
+def make_worker(origin='http://127.0.0.1:8000'):
+    return NetworkWorker(
+        origin,
+        DjangoAuth,
+        ApiClient,
+        GameSocketClient,
+        ResponseValidator(),
+    )
 
 
 class HistoryClientTests(unittest.TestCase):
@@ -69,8 +85,13 @@ class HistoryClientTests(unittest.TestCase):
 
     def test_train_command_contains_only_type_and_uuid(self):
         async def exercise():
-            worker = NetworkWorker('http://127.0.0.1:8000')
             sent = []
+            client = GameSocketClient(
+                None,
+                'http://127.0.0.1:8000',
+                ResponseValidator(),
+                lambda _result: None,
+            )
 
             class Ws:
                 closed = False
@@ -78,12 +99,12 @@ class HistoryClientTests(unittest.TestCase):
                 async def send_json(self, payload):
                     sent.append(payload)
                     asyncio.get_running_loop().call_soon(
-                        worker._command_waiter.set_result,
+                        client._command_waiter.set_result,
                         {'player_id': 7, 'room_id': 'room-01', 'x': 3, 'y': 2,
                          'coins': 6, 'version': 7})
 
-            worker._ws = Ws()
-            player = await worker._command('train', '')
+            client._ws = Ws()
+            player = await client.command('train', '')
             return sent, player
 
         sent, player = asyncio.run(exercise())
@@ -94,16 +115,30 @@ class HistoryClientTests(unittest.TestCase):
 
     def test_train_success_queues_history_on_same_worker(self):
         async def exercise():
-            worker = NetworkWorker('http://127.0.0.1:8000')
+            worker = make_worker()
             worker._authenticated = True
 
-            async def fake_command(action, direction):
-                self.assertEqual((action, direction), ('train', ''))
-                return {'player_id': 7, 'room_id': 'room-01', 'x': 3, 'y': 2,
-                        'coins': 6, 'version': 7}
+            class Auth:
+                def clear(self):
+                    pass
 
-            worker._command = fake_command
-            await worker._dispatch(Request('command', action='train'))
+            class Api:
+                pass
+
+            class Socket:
+                async def command(_self, action, direction):
+                    self.assertEqual((action, direction), ('train', ''))
+                    return {
+                        'player_id': 7,
+                        'room_id': 'room-01',
+                        'x': 3,
+                        'y': 2,
+                        'coins': 6,
+                        'version': 7,
+                    }
+
+            await worker._dispatch(
+                Request('command', action='train'), Auth(), Api(), Socket())
             return worker.results.get_nowait(), worker.requests.get_nowait()
 
         command, follow_up = asyncio.run(exercise())
@@ -113,10 +148,16 @@ class HistoryClientTests(unittest.TestCase):
 
     def test_only_matching_own_state_acknowledges_command(self):
         async def exercise():
-            worker = NetworkWorker('http://127.0.0.1:8000')
-            worker._player_id = 7
-            worker._command_id = 'mine'
-            worker._command_waiter = asyncio.get_running_loop().create_future()
+            results = []
+            client = GameSocketClient(
+                None,
+                'http://127.0.0.1:8000',
+                ResponseValidator(),
+                results.append,
+            )
+            client._player_id = 7
+            client._command_id = 'mine'
+            client._command_waiter = asyncio.get_running_loop().create_future()
             checks = []
             messages = [
                 {'type': 'state', 'player_id': 8, 'room_id': 'room-01',
@@ -138,7 +179,7 @@ class HistoryClientTests(unittest.TestCase):
                     if self.index >= len(messages):
                         raise StopAsyncIteration
                     if self.index:
-                        checks.append(worker._command_waiter.done())
+                        checks.append(client._command_waiter.done())
                     data = messages[self.index]
                     self.index += 1
                     return type('Message', (), {
@@ -146,12 +187,9 @@ class HistoryClientTests(unittest.TestCase):
                         'data': json.dumps(data),
                     })()
 
-            worker._ws = Ws()
-            await worker._listen_ws()
-            results = []
-            while not worker.results.empty():
-                results.append(worker.results.get_nowait())
-            return checks, worker._command_waiter.result(), results
+            client._ws = Ws()
+            await client._listen()
+            return checks, client._command_waiter.result(), results
 
         checks, acknowledged, results = asyncio.run(exercise())
         self.assertEqual(checks, [False, False])
@@ -180,8 +218,7 @@ class HistoryClientTests(unittest.TestCase):
         self.assertTrue(panel.visible)
 
     def test_history_allowlist(self):
-        worker = NetworkWorker('http://127.0.0.1:8000')
-        safe = worker._validate_history(HISTORY)
+        safe = ResponseValidator().validate_history(HISTORY)
         self.assertEqual(safe, {
             'scope': 'current-player',
             'limit': 20,
@@ -221,18 +258,24 @@ class HistoryClientTests(unittest.TestCase):
             def __init__(self):
                 self.calls = []
 
-            def request(self, method, url, **kwargs):
-                self.calls.append((method, url, kwargs))
+            def get(self, url, **kwargs):
+                self.calls.append(('GET', url, kwargs))
                 return Context()
 
         async def exercise():
-            worker = NetworkWorker('http://127.0.0.1:8000')
-            worker._session = Session()
-            history = await worker._http('GET', '/api/history/')
-            return worker, history, worker.results.get_nowait()
+            session = Session()
+            results = []
+            client = ApiClient(
+                session,
+                'http://127.0.0.1:8000',
+                ResponseValidator(),
+                results.append,
+            )
+            history = await client.get_history()
+            return session, history, results[0]
 
-        worker, history, api_result = asyncio.run(exercise())
-        self.assertEqual(worker._session.calls[0][0:2], (
+        session, history, api_result = asyncio.run(exercise())
+        self.assertEqual(session.calls[0][0:2], (
             'GET', 'http://127.0.0.1:8000/api/history/'))
         self.assertEqual(api_result.kind, 'api')
         self.assertEqual(api_result.api_path, '/api/history/')
@@ -242,18 +285,26 @@ class HistoryClientTests(unittest.TestCase):
 
     def test_history_dispatch_uses_fixed_path_and_updates_panel_state(self):
         async def exercise():
-            worker = NetworkWorker('http://127.0.0.1:8000')
+            worker = make_worker()
             worker._authenticated = True
             calls = []
 
-            async def fake_http(method, path, **_kwargs):
-                calls.append((method, path))
-                worker.results.put_nowait(Result(
-                    'api', status=200, player=HISTORY, api_path=path))
-                return HISTORY
+            class Auth:
+                def clear(self):
+                    pass
 
-            worker._http = fake_http
-            await worker._dispatch(Request('history'))
+            class Api:
+                async def get_history(self):
+                    calls.append(('GET', '/api/history/'))
+                    worker.results.put_nowait(Result(
+                        'api', status=200, player=HISTORY,
+                        api_path='/api/history/'))
+                    return HISTORY
+
+            class Socket:
+                pass
+
+            await worker._dispatch(Request('history'), Auth(), Api(), Socket())
             api_result = worker.results.get_nowait()
             history_result = worker.results.get_nowait()
             return calls, api_result, history_result
@@ -279,12 +330,11 @@ class HistoryClientTests(unittest.TestCase):
                 pass
 
         class Session:
-            cookie_jar = Jar()
-
             def __init__(self, status):
                 self.status = status
+                self.cookie_jar = Jar()
 
-            def request(self, _method, _url, **_kwargs):
+            def get(self, _url, **_kwargs):
                 status = self.status
 
                 class Response:
@@ -301,10 +351,24 @@ class HistoryClientTests(unittest.TestCase):
                 return Response()
 
         async def exercise(status):
-            worker = NetworkWorker('http://127.0.0.1:8000')
+            worker = make_worker()
             worker._authenticated = True
-            worker._session = Session(status)
-            await worker._dispatch(Request('history'))
+            auth = type('Auth', (), {
+                'clear': lambda self: self.session.cookie_jar.clear(),
+                'session': Session(status),
+            })()
+            api = ApiClient(
+                auth.session,
+                'http://127.0.0.1:8000',
+                ResponseValidator(),
+                worker.results.put,
+            )
+
+            class Socket:
+                async def close(self):
+                    pass
+
+            await worker._dispatch(Request('history'), auth, api, Socket())
             results = []
             while not worker.results.empty():
                 results.append(worker.results.get_nowait())
@@ -319,10 +383,9 @@ class HistoryClientTests(unittest.TestCase):
                 self.assertFalse(worker._authenticated)
 
     def test_history_rejects_invalid_shape(self):
-        worker = NetworkWorker('http://127.0.0.1:8000')
         invalid = {**HISTORY, 'events': [{**HISTORY['events'][0], 'payload': {'x': 1}}]}
         with self.assertRaises(Failure):
-            worker._validate_history(invalid)
+            ResponseValidator().validate_history(invalid)
 
 
 if __name__ == '__main__':

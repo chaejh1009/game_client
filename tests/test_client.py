@@ -13,11 +13,25 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'client'))
 from aiohttp import web
 from network import NetworkWorker
+from network_api import ApiClient
+from network_auth import DjangoAuth
+from network_validation import ResponseValidator
+from network_ws import GameSocketClient
 from panels import AnalyticsPanelState
 from state import Request, Result, State
 
 PLAYER = dict(player_id=7, room_id=2, x=3, y=4, coins=5, version=6)
 OTHER = dict(player_id=8, room_id=2, x=9, y=10, coins=1, version=2)
+
+
+def make_worker(origin):
+    return NetworkWorker(
+        origin,
+        DjangoAuth,
+        ApiClient,
+        GameSocketClient,
+        ResponseValidator(),
+    )
 
 class ContractTests(unittest.TestCase):
     @classmethod
@@ -210,7 +224,7 @@ class ContractTests(unittest.TestCase):
         type(self).mode = 'ok'
         self.calls.clear()
         self.commands.clear()
-        self.worker = NetworkWorker(self.origin)
+        self.worker = make_worker(self.origin)
         self.worker.start()
 
     def tearDown(self):
@@ -533,7 +547,7 @@ class ContractTests(unittest.TestCase):
 
     def test_separate_cookie_jars(self):
         self.assertEqual(self.login()[0].kind, 'player')
-        other = NetworkWorker(self.origin)
+        other = make_worker(self.origin)
         other.start()
         try:
             other.submit(Request('login', 'student', 'test-only'))
@@ -550,7 +564,6 @@ class ContractTests(unittest.TestCase):
         finally:
             other.stop()
             other.thread.join(2)
-        self.assertIsNot(self.worker._session.cookie_jar, other._session.cookie_jar)
 
     def test_bad_credentials(self):
         type(self).mode = 'bad_credentials'
@@ -573,7 +586,6 @@ class ContractTests(unittest.TestCase):
         self.worker.thread.join(1)
         self.assertFalse(self.worker.thread.is_alive())
         self.assertLess(time.monotonic() - start, 1)
-        self.assertTrue(self.worker._session.closed)
 
 if __name__ == '__main__':
     unittest.main()

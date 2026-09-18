@@ -21,7 +21,12 @@
 | `client/network_validation.py` | [`files/network_validation.py.md`](files/network_validation.py.md) | HTTP/WS 응답 검증과 안전 투영 |
 | `client/network_errors.py` | [`files/network_errors.py.md`](files/network_errors.py.md) | 네트워크 컴포넌트 공통 안전 오류 |
 | `client/panels.py` | [`files/panels.py.md`](files/panels.py.md) | 통계·이력 패널 상태 전이 |
-| `client/render.py` | [`files/render.py.md`](files/render.py.md) | pygame 자산 준비와 화면 출력 |
+| `client/render.py` | [`files/render.py.md`](files/render.py.md) | `RendererPort` façade와 장면 선택 |
+| `client/render_support.py` | [`files/render_support.py.md`](files/render_support.py.md) | pygame 자산·글꼴·배치·공통 출력 |
+| `client/render_login.py` | [`files/render_login.py.md`](files/render_login.py.md) | 로그인 장면 출력 |
+| `client/render_game.py` | [`files/render_game.py.md`](files/render_game.py.md) | 인증 후 게임 장면 조정 |
+| `client/render_world.py` | [`files/render_world.py.md`](files/render_world.py.md) | 마을 맵과 플레이어 출력 |
+| `client/render_panels.py` | [`files/render_panels.py.md`](files/render_panels.py.md) | API·통계·이력 패널 출력 |
 | `client/state.py` | [`files/state.py.md`](files/state.py.md) | 설정과 게임 UI 상태 |
 | `client/config.json` | [`files/config.json.md`](files/config.json.md) | 실행 시 읽는 클라이언트 설정 값 |
 
@@ -40,6 +45,11 @@ main.py : 구체 구현 생성 및 추상계약 타입으로 조립
         -> NetworkPort -> network.py
         -> RendererFactoryPort -> render.Renderer 생성
         -> RendererPort -> render.py
+           -> render_support.py : 자산, 배치, primitive
+           -> render_login.py : 로그인 장면
+           -> render_game.py : 게임 장면 조정
+              -> render_world.py : 맵과 플레이어
+              -> render_panels.py : API, 통계, 이력
 
 controller.py / network.py
   -> messages.py : Request/Result 값 계약
@@ -70,7 +80,9 @@ network.py
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
 - `panels.py`: 패널별 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다.
-- `render.py`: 읽기 전용 화면 상태와 pygame 배치만 알며 요청을 만들거나 상태를 변경하지 않는다.
+- `render.py`: `RendererPort` façade로서 장면만 선택하고 frame을 표시한다.
+- `render_support.py`: 상태를 모르며 pygame 자산, 배치, hitbox와 공통 출력만 소유한다.
+- `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
 - `config.json`: 값만 제공하며 호출 관계를 갖지 않는다.
 
 ## 추상계약 규칙

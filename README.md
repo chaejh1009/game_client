@@ -123,10 +123,11 @@ python client/main.py
 - `client/network.py`: 네트워크 worker 하나, asyncio loop 하나, ClientSession 하나. HTTP 로그인·상태 조회·로그아웃과 WebSocket 연결·명령을 처리하고 thread-safe Queue로만 명령/결과 전달.
 - `client/state.py`: 설정, UI 상태, 비밀 정보를 포함하지 않는 결과 메시지.
 - `client/panels.py`: API 응답, Spark 통계, 수련 이력 패널의 메인 스레드 상태.
-- `client/render.py`: 메인 스레드의 Pygame 로그인 화면, 20×15 마을 맵, 타일·스프라이트, 명령 버튼, 읽기 전용 state 패널.
+- `client/render.py`: `RendererPort`를 구현하는 Pygame 렌더 façade. 세부 책임은 `render_support.py`, `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`로 분리됩니다.
 - `client/config.json`: 실제 읽는 설정. 루트 `config.json`은 읽지 않습니다.
 - `client/assets/`: 기본 타일·장식·플레이어 이미지(`grass.png`, `path.png`, `tree.png`, `house.png`, `hero.png`)와 Kenney 원본 패키지. 원본 패키지의 사용 조건은 각 폴더의 `License.txt`를 확인하세요.
 - `tests/test_client.py`: 표준 unittest와 로컬 aiohttp 모의 서버를 사용하는 계약 검증.
+- `tests/test_render.py`: dummy SDL 화면에서 렌더 포트, 상태 불변성, 계층 의존 방향을 검증.
 
 주요 `client/config.json` 설정은 다음과 같습니다.
 

@@ -145,7 +145,7 @@ draw(state: StatePort,
      history_panel: HistoryPanelPort) -> None
 ```
 
-구현: `render.Renderer`.
+구현: `render.Renderer`. 세부 출력은 façade 내부에서 책임별 렌더 모듈로 위임하지만 애플리케이션에 공개되는 계약은 이 포트 하나이다.
 
 ## `RendererFactoryPort`
 

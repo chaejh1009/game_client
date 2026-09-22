@@ -1,7 +1,7 @@
 # Client routing
 
 이 문서는 `python client/main.py`로 실행되는 pygame 클라이언트의 탐색 진입점이다.
-책임 분리와 행동 통계·Kafka 수집 통계 패널 작업이 기존 계약을 깨지 않도록 현재 호출 경계를 기록한다.
+책임 분리와 행동 통계·Kafka 수집 통계·시간 창 표 작업이 기존 계약을 깨지 않도록 현재 호출 경계를 기록한다.
 
 ## 범위
 
@@ -58,7 +58,8 @@ network.py
   -> AuthFactoryPort -> AuthPort -> network_auth.py
      -> /accounts/login/, /accounts/logout/
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
-     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/analytics/ingest/, /api/history/
+     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/analytics/ingest/
+     -> /api/analytics/windows/, /api/history/
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
@@ -74,12 +75,12 @@ network.py
 - `messages.py`: `Request`, `Result`와 허용 필드 상수만 정의하며 상태나 I/O를 갖지 않는다.
 - `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·검증 구현은 포트로 호출한다.
 - `network_auth.py`: Django form/CSRF/cookie 계약만 안다.
-- `network_api.py`: 다섯 JSON endpoint와 JSON transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
+- `network_api.py`: 여섯 JSON endpoint와 JSON transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_ws.py`: `/ws/play/`, broadcast, `command_id` waiter만 알고 응답 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_validation.py`: 외부 데이터 검증과 안전 투영만 하며 네트워크 I/O를 하지 않는다.
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
-- `panels.py`: 행동 집계·Kafka 수집 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다.
+- `panels.py`: 행동 집계·Kafka 수집·시간 창 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다. 시간 창의 종류 필터와 페이지 이동은 받은 배열에만 적용한다.
 - `render.py`: `RendererPort` façade로서 장면만 선택하고 frame을 표시한다.
 - `render_support.py`: 상태를 모르며 pygame 자산, 배치, hitbox와 공통 출력만 소유한다.
 - `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
@@ -110,8 +111,13 @@ network.py
 - Kafka 수집 통계는 사용자가 `통계 다시 읽기`를 눌렀을 때만 같은 ClientSession worker가 `GET /api/analytics/ingest/`로 이미 게시된 결과를 읽는다. Spark 실행이나 Kafka 연결은 만들지 않는다.
 - 수집 통계 응답은 queue로 메인 스레드에 전달하고 Pygame 메인 스레드가 텍스트·Rect·Surface를 그린다. GUI 루프는 네트워크 대기·`time.sleep()`을 수행하지 않는다.
 - 수집 통계가 없을 때 숫자 0을 합성하지 않으며, 503은 `마지막 수집 통계를 읽을 수 없음`, 302/401은 로그인 안내로 표시한다. 원문 `raw_value`·evidence 파일과 인증 정보는 접속기에 전달하거나 표시하지 않는다.
+- 시간 창 `새로 읽기` 또는 API 응답 보기의 `windows` 버튼을 한 번 누르면 기존 인증 ClientSession worker가 `server_base_url + /api/analytics/windows/`를 GET한다. 요청과 결과는 thread-safe queue를 통과하며, Pygame 폰트·Rect·그리기는 메인 스레드에서 수행한다.
+- 시간 창 표는 `확정 시간 창의 전달 레코드 수(중복 전달 포함 가능)`과 `시작 포함 · 끝 미포함 [window_start, window_end)`를 표시한다. `generated_at`은 집계 생성 시각이며 현재 게임의 `coords`·`coins`·`version`을 바꾸지 않는다.
+- `available=false`는 `아직 창 요약 없음`, 게시 가능한 창 배열이 비면 `확정된 게시 대상 창 없음`으로 구분한다. `all`/`tumbling`/`sliding`과 5행 페이지는 받은 작은 배열을 화면에서 필터할 뿐 Spark 작업이나 서버 설정 변경을 요청하지 않는다.
+- API 응답 보기는 기존 player/history GET에 windows GET을 추가하고 경로·status·안전한 응답 JSON만 표시한다. `allow_redirects=False`, timeout, status/Content-Type 검사를 유지하며 HTML을 JSON으로 읽지 않고 auth·쿠키·CSRF를 표시하지 않는다.
+- 기존 통계 탭의 game-summary 표, 온라인 상태, `village-board`/`lobby-banner` 광고용 두 Rect, `client/assets` 이미지와 한글 폰트를 유지한다. 접속기별 독립 인증 세션과 로그아웃·worker 종료·Pygame 종료 순서를 유지한다.
 - replay 기능과 replay 호출 경로는 만들지 않는다.
-- 서버 코드와 API/WS 계약은 이 문서화 단계의 변경 대상이 아니다.
+- 서버·Spark 코드와 기존 API/WS 계약은 변경 대상이 아니다.
 
 ## 문서 갱신 규칙
 

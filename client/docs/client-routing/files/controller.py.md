@@ -32,7 +32,7 @@
 
 ```text
 busy/closing/command_pending이면 False
-player/history/logout이고 delivery 또는 통계·ingest·이력 패널 요청 중이면 False
+player/history/logout이고 delivery 또는 통계·ingest·windows·이력 패널 요청 중이면 False
 login이면 username/password 검사
     Request(kind, trimmed username, password) 생성
     두 패널 clear
@@ -86,6 +86,27 @@ True 반환
 
 `통계 다시 읽기` 버튼의 유일한 진입점이다. 이미 게시된 결과를 읽는 GET만 worker에 제출하고, `ingest_pending`으로 프레임 반복과 연속 클릭을 막는다.
 
+### `request_windows(self) -> bool`
+
+```text
+AnalyticsPanelPort.begin_windows(authenticated, closing)이 거부하면 False
+이력 패널 숨김
+NetworkPort.submit(Request('windows'))
+True 반환
+```
+
+시간 창 `새로 읽기` 버튼의 요청 진입점이다. 한 번의 클릭으로 한 요청만 queue에 제출하고, `windows_pending`으로 진행 중 중복 요청을 막는다.
+
+### 시간 창의 로컬 표시 선택
+
+```text
+select_analytics_view(view) -> AnalyticsPanelPort.select_analytics_view(view)
+select_window_kind(kind) -> AnalyticsPanelPort.select_window_kind(kind)
+change_window_page(delta) -> AnalyticsPanelPort.change_window_page(delta)
+```
+
+세 메서드는 패널의 탭·필터·페이지만 변경하며 worker를 호출하지 않는다.
+
 ### `toggle_analytics(self) -> None`
 
 ```text
@@ -97,7 +118,7 @@ True 반환
 
 ```text
 이력 패널이 보이면 hide()
-아니고 통계 또는 ingest 요청이 진행 중이 아니면:
+아니고 통계·ingest·windows 요청이 진행 중이 아니면:
     통계 패널 hide()
     이력 패널 show()
 ```
@@ -131,3 +152,4 @@ logged_out 또는 needs_login이면 두 패널 clear()
 ```
 
 패널 결과 적용 순서와 로그인 만료 시 일반 상태 적용을 보존한다.
+`windows`/`windows_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.

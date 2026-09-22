@@ -192,6 +192,47 @@ class ResponseValidator:
     def validate_ingest_analytics(self, data: dict) -> dict:
         return self.validate_ingest(data)
 
+    def validate_windows(self, data: dict) -> dict:
+        """Project finalized window counts without retaining raw records."""
+        available = data.get('available')
+        if type(available) is not bool:
+            raise Failure('windows 응답의 available을 확인하세요.')
+        if not available:
+            return {'available': False}
+
+        generated_at = data.get('generated_at')
+        if (not isinstance(generated_at, str) or not generated_at
+                or len(generated_at) > 120):
+            raise Failure('windows 응답의 generated_at을 확인하세요.')
+        rows = data.get('windows')
+        if not isinstance(rows, list) or len(rows) > 100:
+            raise Failure('windows 응답의 windows 형식을 확인하세요.')
+        windows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise Failure('windows 응답의 행을 확인하세요.')
+            kind = row.get('kind')
+            if kind not in ('tumbling', 'sliding'):
+                raise Failure('windows 응답의 kind를 확인하세요.')
+            safe_row = {'kind': kind}
+            for field_name, limit in (
+                    ('window_start', 120), ('window_end', 120),
+                    ('event_type', 80)):
+                value = row.get(field_name)
+                if not isinstance(value, str) or not value or len(value) > limit:
+                    raise Failure(f'windows 응답의 {field_name}을 확인하세요.')
+                safe_row[field_name] = value
+            count = row.get('count')
+            if type(count) is not int or count < 0:
+                raise Failure('windows 응답의 count를 확인하세요.')
+            safe_row['count'] = count
+            windows.append(safe_row)
+        return {
+            'available': True,
+            'generated_at': generated_at,
+            'windows': windows,
+        }
+
     def validate_history(self, data: dict) -> dict:
         scope = data.get('scope')
         limit = data.get('limit')

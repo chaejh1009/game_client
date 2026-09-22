@@ -41,8 +41,16 @@ pygame 초기화나 worker 시작은 아직 하지 않음
 ```text
 미인증이면 username/password/login control 반환
 인증이면 게임 명령, 조회, 로그아웃, 패널 control 반환
-통계 패널이 미생성 또는 최초 오류 상태이면 analytics_refresh control 추가
-통계 패널이 보이고 두 조회가 idle이면 ingest_refresh control 추가
+API 응답 보기에는 api_player/api_history/api_windows 포함
+통계 패널이 보이면 analytics_summary/analytics_windows 탭 control 추가
+idle = 행동 통계·ingest·windows 중 진행 중인 요청이 없음
+시간 창 탭이면:
+    windows_all/windows_tumbling/windows_sliding 필터 control 추가
+    idle이면 windows_refresh 추가
+    앞/뒤 페이지가 존재하는 방향의 windows_previous/windows_next 추가
+기존 통계 탭이고 idle이면:
+    ingest_refresh 추가
+    available이 True가 아니면 analytics_refresh 추가
 ```
 
 ### `_handle_mouse(self, event, renderer) -> None`
@@ -54,8 +62,14 @@ RendererPort.controls[name]과 event.pos 충돌 검사
 게임/조회/패널 control이면 대응 ClientController 메서드 호출
 analytics_refresh이면 request_analytics 호출
 ingest_refresh이면 request_ingest 호출
+windows_refresh/api_windows이면 request_windows 호출
+analytics_summary/analytics_windows이면 select_analytics_view 호출
+windows_all/windows_tumbling/windows_sliding이면 select_window_kind 호출
+windows_previous/windows_next이면 change_window_page(-1/+1) 호출
 refresh는 submit('player'), logout/login은 해당 kind submit
 ```
+
+탭·종류·페이지 선택은 이미 받은 패널 데이터만 바꾼다. 시간 창 요청은 명시적인 새로 읽기/API 버튼 경로에서만 시작하고 HTTP 완료를 기다리지 않는다. 진행 중 중복 요청의 최종 차단은 [controller.py](controller.py.md)와 [panels.py](panels.py.md)가 담당한다.
 
 ### `_handle_keydown(self, event) -> None`
 

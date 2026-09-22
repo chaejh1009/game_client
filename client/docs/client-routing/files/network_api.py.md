@@ -2,7 +2,7 @@
 
 ## 책임과 경계
 
-주입받은 단일 ClientSession으로 다섯 개의 JSON 조회 API를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
+주입받은 단일 ClientSession으로 여섯 개의 JSON 조회 API를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
 
 ## `ApiClient` 필드
 
@@ -70,6 +70,14 @@ _get('/api/analytics/ingest/', validator.validate_ingest,
 ### `get_ingest_analytics(self) -> dict` (`async`)
 
 `get_ingest()`를 호출하는 호환 별칭이다.
+
+### `get_windows(self) -> dict` (`async`)
+
+```text
+_get('/api/analytics/windows/', validator.validate_windows)
+```
+
+사용자의 새로 읽기 요청 한 번에 이미 게시된 시간 창 요약을 한 번 GET한다. 로컬 필터 선택은 이 메서드를 호출하지 않는다. 기존 인증 session과 timeout을 사용하며 원문 레코드 조회, Spark 작업, 서버 설정 변경은 만들지 않는다. `_get`이 status와 안전하게 투영한 JSON만 inspector 결과로 전달한다.
 
 ### `get_history(self) -> dict` (`async`)
 

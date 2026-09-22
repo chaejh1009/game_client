@@ -32,6 +32,16 @@ def draw_analytics_panel(view: RenderSupport,
     previous = view.screen.get_clip()
     view.screen.set_clip(rect.inflate(-4, -4))
     x, y = rect.x + 18, rect.y + 14
+    queries_pending = panel.pending or panel.ingest_pending or panel.windows_pending
+    for name, label, selected in (
+        ('analytics_summary', '기존 통계', panel.analytics_view == 'summary'),
+        ('analytics_windows', '시간 창', panel.analytics_view == 'windows'),
+    ):
+        view.button(name, label, color=ACCENT if selected else (84, 113, 122))
+    if panel.analytics_view == 'windows':
+        _draw_windows_panel(view, panel, rect)
+        view.screen.set_clip(previous)
+        return
     view.text('행동 집계 snapshot', (x, y), ACCENT, view.font)
     if panel.pending:
         view.text('저장된 집계 결과를 읽는 중…', (x, y + 42), MUTED, view.small)
@@ -43,10 +53,10 @@ def draw_analytics_panel(view: RenderSupport,
             rect.width - 36,
             color=ERROR,
         )
-        view.button('analytics_refresh', '다시 조회', False)
+        view.button('analytics_refresh', '다시 조회', queries_pending)
     elif panel.available is False:
         view.text('행동 집계가 아직 없습니다', (x, y + 42), PENDING, view.font)
-        view.button('analytics_refresh', '조회', False)
+        view.button('analytics_refresh', '조회', queries_pending)
     elif panel.available is not True:
         view.wrapped(
             panel.message or '통계를 읽지 않았습니다.',
@@ -55,7 +65,7 @@ def draw_analytics_panel(view: RenderSupport,
             rect.width - 36,
             color=MUTED,
         )
-        view.button('analytics_refresh', '다시 조회', False)
+        view.button('analytics_refresh', '다시 조회', queries_pending)
     else:
         view.text(f'topic: {panel.source_topic[:52]}', (x, y + 34), MUTED, view.small)
         view.text(f'kind: {panel.source_kind[:52]}', (x, y + 54), MUTED, view.small)
@@ -116,7 +126,7 @@ def draw_analytics_panel(view: RenderSupport,
     pygame.draw.rect(view.screen, TRAIN, ingest, width=1, border_radius=9)
     ingest_x, ingest_y = ingest.x + 10, ingest.y + 10
     view.text('Kafka 수집 통계', (ingest_x, ingest_y), TRAIN, view.font)
-    view.button('ingest_refresh', '통계 다시 읽기', panel.ingest_pending)
+    view.button('ingest_refresh', '통계 다시 읽기', queries_pending)
     view.text('이미 게시된 결과를 읽습니다 · Spark 실행 없음 · Kafka 연결 없음',
               (ingest_x, ingest_y + 34), MUTED, view.tiny)
     view.wrapped(
@@ -174,6 +184,66 @@ def draw_analytics_panel(view: RenderSupport,
     view.screen.set_clip(previous)
 
 
+def _draw_windows_panel(view: RenderSupport, panel: AnalyticsPanelPort,
+                        rect: pygame.Rect) -> None:
+    x, y = rect.x + 18, rect.y + 14
+    view.text('시간 창 통계', (x, y), ACCENT, view.font)
+    view.text('확정 시간 창의 전달 레코드 수(중복 전달 포함 가능)',
+              (x, y + 48), INK, view.small)
+    view.text('시작 포함 · 끝 미포함 [window_start, window_end)',
+              (x, y + 72), MUTED, view.small)
+    view.wrapped(f'집계 생성 시각: {panel.windows_generated_at or "—"}',
+                 x, y + 96, rect.width - 36, font=view.tiny)
+    for kind in ('all', 'tumbling', 'sliding'):
+        view.button(f'windows_{kind}', kind,
+                    color=ACCENT if panel.window_kind == kind else (84, 113, 122))
+    view.button('windows_refresh', '새로 읽기',
+                panel.pending or panel.ingest_pending or panel.windows_pending)
+    view.text('종류 선택·페이지 이동은 받은 결과만 표시합니다.',
+              (x, y + 174), MUTED, view.tiny)
+    if panel.windows_pending:
+        message, color = panel.windows_message, PENDING
+    elif panel.windows_error:
+        message, color = panel.windows_error, ERROR
+    else:
+        message, color = panel.windows_message, MUTED
+    view.wrapped(message, x, y + 195, rect.width - 36, font=view.tiny, color=color)
+    if panel.windows_available is not True or not panel.windows:
+        return
+    rows = panel.window_page_rows
+    if not rows:
+        view.text('선택한 종류의 확정된 게시 대상 창 없음',
+                  (x, y + 236), PENDING, view.small)
+        return
+
+    # Each cell has its own clip: long timestamps/event names cannot cover counts.
+    widths = (68, 144, 144, 136, rect.width - 36 - 492)
+    labels = ('kind', 'window_start', 'window_end', 'event_type', 'count')
+    column_x = x
+    for label, width in zip(labels, widths):
+        view.text(label, (column_x + 4, y + 224), MUTED, view.tiny)
+        column_x += width
+    row_height = min(48, (view.controls['windows_previous'].y - (y + 246) - 12) // 5)
+    for index, row in enumerate(rows):
+        row_rect = pygame.Rect(x, y + 246 + index * row_height,
+                               rect.width - 36, row_height - 3)
+        pygame.draw.rect(view.screen, CARD, row_rect, border_radius=4)
+        column_x = x
+        for label, width in zip(labels, widths):
+            cell = pygame.Rect(column_x + 4, row_rect.y + 4, width - 8, row_rect.height - 8)
+            previous = view.screen.get_clip()
+            view.screen.set_clip(previous.clip(cell))
+            view.wrapped(row[label], cell.x, cell.y, cell.width, font=view.tiny,
+                         color=ACCENT if label == 'count' else INK)
+            view.screen.set_clip(previous)
+            column_x += width
+    view.button('windows_previous', '이전', panel.window_page == 0)
+    view.button('windows_next', '다음', panel.window_page + 1 >= panel.window_page_count)
+    view.text(f'{panel.window_page + 1} / {panel.window_page_count} · '
+              f'{len(panel.visible_windows)}행',
+              (x + 210, view.controls['windows_previous'].y + 6), MUTED, view.small)
+
+
 def draw_api_panel(view: RenderSupport, state: StatePort,
                    analytics_panel: AnalyticsPanelPort | None,
                    history_panel: HistoryPanelPort | None) -> None:
@@ -189,29 +259,37 @@ def draw_api_panel(view: RenderSupport, state: StatePort,
         or state.delivery_pending
         or analytics_panel is not None and analytics_panel.pending
         or analytics_panel is not None and analytics_panel.ingest_pending
+        or analytics_panel is not None and analytics_panel.windows_pending
         or history_panel is not None and history_panel.pending
     )
     view.button(
         'api_player',
-        '/api/player/',
+        'player',
         disabled,
         ACCENT if state.api_path == '/api/player/' else (84, 113, 122),
     )
     view.button(
         'api_history',
-        '/api/history/',
+        'history',
         disabled,
         ACCENT if state.api_path == '/api/history/' else (84, 113, 122),
     )
+    view.button(
+        'api_windows',
+        'windows',
+        disabled,
+        ACCENT if state.api_path == '/api/analytics/windows/' else (84, 113, 122),
+    )
     path = state.api_path or '—'
     status = str(state.api_status) if state.api_status is not None else '—'
-    view.text(f'{path} · status {status}', (x, y + 62), MUTED, view.small)
+    view.text(path, (x, y + 54), MUTED, view.tiny)
+    view.text(f'status {status}', (x, y + 71), MUTED, view.tiny)
     data = (
         json.dumps(state.api_json, ensure_ascii=False)
         if state.api_json is not None
         else '아직 API 응답이 없습니다.'
     )
-    view.wrapped(data, x, y + 84, view.api_panel.width - 24, color=INK)
+    view.wrapped(data, x, y + 90, view.api_panel.width - 24, font=view.tiny, color=INK)
     view.screen.set_clip(previous)
 
 

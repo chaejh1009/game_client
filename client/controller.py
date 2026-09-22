@@ -21,6 +21,7 @@ class ClientController:
                 state.delivery_pending
                 or self.analytics_panel.pending
                 or self.analytics_panel.ingest_pending
+                or self.analytics_panel.windows_pending
                 or self.history_panel.pending):
             return False
         if kind == 'login':
@@ -69,6 +70,23 @@ class ClientController:
         self.worker.submit(Request('ingest'))
         return True
 
+    def request_windows(self) -> bool:
+        if not self.analytics_panel.begin_windows(
+                self.state.authenticated, self.state.closing):
+            return False
+        self.history_panel.hide()
+        self.worker.submit(Request('windows'))
+        return True
+
+    def select_analytics_view(self, view: str) -> None:
+        self.analytics_panel.select_analytics_view(view)
+
+    def select_window_kind(self, kind: str) -> None:
+        self.analytics_panel.select_window_kind(kind)
+
+    def change_window_page(self, delta: int) -> None:
+        self.analytics_panel.change_window_page(delta)
+
     def toggle_analytics(self) -> None:
         if self.analytics_panel.visible:
             self.analytics_panel.hide()
@@ -79,7 +97,8 @@ class ClientController:
         if self.history_panel.visible:
             self.history_panel.hide()
         elif (not self.analytics_panel.pending
-              and not self.analytics_panel.ingest_pending):
+              and not self.analytics_panel.ingest_pending
+              and not self.analytics_panel.windows_pending):
             self.analytics_panel.hide()
             self.history_panel.show()
 

@@ -72,6 +72,7 @@ class NetworkWorker:
             delivery_task = None
             analytics_task = None
             ingest_task = None
+            windows_task = None
             history_task = None
             try:
                 while True:
@@ -87,6 +88,9 @@ class NetworkWorker:
                     if ingest_task is not None and ingest_task.done():
                         await ingest_task
                         ingest_task = None
+                    if windows_task is not None and windows_task.done():
+                        await windows_task
+                        windows_task = None
                     if history_task is not None and history_task.done():
                         await history_task
                         history_task = None
@@ -121,6 +125,14 @@ class NetworkWorker:
                             self.results.put(Result(
                                 'ingest_error', '수집 통계 요청이 이미 진행 중입니다.'))
                         continue
+                    if request.kind == 'windows':
+                        if windows_task is None:
+                            windows_task = asyncio.create_task(
+                                self._dispatch(request, auth, api, game_socket))
+                        else:
+                            self.results.put(Result(
+                                'windows_error', '시간 창 통계 요청이 이미 진행 중입니다.'))
+                        continue
                     if request.kind == 'history':
                         if history_task is None:
                             history_task = asyncio.create_task(
@@ -141,13 +153,13 @@ class NetworkWorker:
             finally:
                 for task in (
                         active, delivery_task, analytics_task, ingest_task,
-                        history_task):
+                        windows_task, history_task):
                     if task is not None:
                         task.cancel()
                 await asyncio.gather(
                     *(task for task in (
                         active, delivery_task, analytics_task, ingest_task,
-                        history_task)
+                        windows_task, history_task)
                       if task is not None),
                     return_exceptions=True)
                 await game_socket.shutdown()
@@ -194,6 +206,12 @@ class NetworkWorker:
                 ingest = await api.get_ingest()
                 self.results.put(Result(
                     'ingest', 'Kafka 수집 통계를 읽었습니다.', player=ingest))
+            elif request.kind == 'windows':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                windows = await api.get_windows()
+                self.results.put(Result(
+                    'windows', '확정 시간 창 통계를 읽었습니다.', player=windows))
             elif request.kind == 'history':
                 if not self._authenticated:
                     raise Failure('먼저 로그인하세요.', True)
@@ -240,6 +258,8 @@ class NetworkWorker:
                 kind = 'analytics_error'
             elif request.kind == 'ingest':
                 kind = 'ingest_error'
+            elif request.kind == 'windows':
+                kind = 'windows_error'
             elif request.kind == 'history':
                 kind = 'history_error'
             else:

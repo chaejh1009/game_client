@@ -43,8 +43,17 @@ by_action/by_room/message/error
 ingest_pending/ingest_available/ingest_source/ingest_generated_at
 ingest_record_count/ingest_event_count/ingest_duplicate_record_count
 ingest_by_action/ingest_message/ingest_error
+windows_pending/windows_available/windows_generated_at/windows
+windows_message/windows_error/window_kind/window_page/analytics_view
+visible_windows -> tuple (읽기 전용, 로컬 kind 필터)
+window_page_count -> int (읽기 전용, 최소 1)
+window_page_rows -> tuple (읽기 전용, 최대 5행)
 begin(authenticated, closing) -> bool
 begin_ingest(authenticated, closing) -> bool
+begin_windows(authenticated, closing) -> bool
+select_analytics_view(view) -> None
+select_window_kind(kind) -> None
+change_window_page(delta) -> None
 hide() -> None
 clear() -> None
 apply(result: Result) -> bool
@@ -93,6 +102,7 @@ validate_player(data) -> dict
 validate_delivery(data) -> dict
 validate_analytics(data) -> dict
 validate_ingest(data) -> dict
+validate_windows(data) -> dict
 validate_history(data) -> dict
 ```
 
@@ -117,6 +127,7 @@ ApiClientPort.get_player() -> await dict
 ApiClientPort.get_delivery() -> await dict
 ApiClientPort.get_analytics() -> await dict
 ApiClientPort.get_ingest() -> await dict
+ApiClientPort.get_windows() -> await dict
 ApiClientPort.get_history() -> await dict
 ```
 
@@ -170,6 +181,10 @@ request_command(action, direction='') -> bool
 request_delivery() -> bool
 request_analytics() -> bool
 request_ingest() -> bool
+request_windows() -> bool
+select_analytics_view(view) -> None
+select_window_kind(kind) -> None
+change_window_page(delta) -> None
 toggle_analytics() -> None
 toggle_history() -> None
 request_history() -> None

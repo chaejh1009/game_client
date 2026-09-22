@@ -103,6 +103,22 @@ by_action 각 행의 event_type 문자열과 count 정수 검사
 
 available=false 응답의 카운트나 비허용 필드는 반환하지 않으므로 준비 전 상태를 실제 0건으로 표시하지 않는다. `raw_value`, `evidence`, 인증 정보 등 추가 필드는 안전 투영에서 제거한다. `validate_ingest_analytics`는 같은 검증을 호출하는 호환 별칭이다.
 
+### `validate_windows(self, data: dict) -> dict`
+
+```text
+available bool 검사
+False이면 {'available': False} 반환
+True이면 generated_at이 비어 있지 않은 최대 120자 문자열인지 검사
+windows는 최대 100개 list, 각 행은 객체인지 검사
+kind는 tumbling/sliding 중 하나인지 검사
+window_start/window_end는 비어 있지 않은 최대 120자 문자열인지 검사
+event_type은 비어 있지 않은 최대 80자 문자열인지 검사
+count는 bool을 제외한 음이 아닌 정확한 int인지 검사
+available/generated_at/windows와 각 행의 다섯 필드만 반환
+```
+
+`available=False`와 `available=True, windows=[]`를 별도로 보존한다. 시간 창은 게시된 값을 그대로 투영하며 현재 player 상태로 변환하지 않는다. 추가 최상위·행 필드의 원문, 인증 정보, 쿠키, CSRF는 보존하지 않는다.
+
 ### `validate_history(self, data: dict) -> dict`
 
 ```text

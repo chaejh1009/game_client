@@ -37,17 +37,25 @@ class ClientApp:
             return ('username', 'password', 'login')
         names = (
             'up', 'down', 'left', 'right', 'gather', 'refresh', 'logout',
-            'delivery', 'train', 'api_player', 'api_history', 'analytics',
+            'delivery', 'train', 'api_player', 'api_history', 'api_windows', 'analytics',
             'history_panel',
         )
-        if (self.analytics_panel.visible
-                and not self.analytics_panel.pending
-                and self.analytics_panel.available is not True):
-            names += ('analytics_refresh',)
-        if (self.analytics_panel.visible
-                and not self.analytics_panel.pending
-                and not self.analytics_panel.ingest_pending):
-            names += ('ingest_refresh',)
+        panel = self.analytics_panel
+        if panel.visible:
+            names += ('analytics_summary', 'analytics_windows')
+            idle = not (panel.pending or panel.ingest_pending or panel.windows_pending)
+            if panel.analytics_view == 'windows':
+                names += ('windows_all', 'windows_tumbling', 'windows_sliding')
+                if idle:
+                    names += ('windows_refresh',)
+                if panel.window_page > 0:
+                    names += ('windows_previous',)
+                if panel.window_page + 1 < panel.window_page_count:
+                    names += ('windows_next',)
+            elif idle:
+                names += ('ingest_refresh',)
+                if panel.available is not True:
+                    names += ('analytics_refresh',)
         return names
 
     def _handle_mouse(self, event: Any, renderer: RendererPort) -> None:
@@ -70,6 +78,14 @@ class ClientApp:
                 self.controller.request_analytics()
             elif name == 'ingest_refresh':
                 self.controller.request_ingest()
+            elif name in ('windows_refresh', 'api_windows'):
+                self.controller.request_windows()
+            elif name in ('analytics_summary', 'analytics_windows'):
+                self.controller.select_analytics_view(name.removeprefix('analytics_'))
+            elif name in ('windows_all', 'windows_tumbling', 'windows_sliding'):
+                self.controller.select_window_kind(name.removeprefix('windows_'))
+            elif name in ('windows_previous', 'windows_next'):
+                self.controller.change_window_page(-1 if name == 'windows_previous' else 1)
             elif name == 'history_panel':
                 self.controller.toggle_history()
             elif name == 'api_player':

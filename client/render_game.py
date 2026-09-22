@@ -47,6 +47,7 @@ def _draw_commands(view: RenderSupport, state: StatePort,
         or state.delivery_pending
         or analytics_panel is not None and analytics_panel.pending
         or analytics_panel is not None and analytics_panel.ingest_pending
+        or analytics_panel is not None and analytics_panel.windows_pending
     )
     view.button('refresh', '갱신', disabled)
     view.button('logout', '로그아웃', disabled)
@@ -149,7 +150,8 @@ def draw_game(view: RenderSupport, state: StatePort,
     )
     analytics_disabled = (
         analytics_panel is not None
-        and (analytics_panel.pending or analytics_panel.ingest_pending)
+        and (analytics_panel.pending or analytics_panel.ingest_pending
+             or analytics_panel.windows_pending)
     )
     view.button(
         'analytics',

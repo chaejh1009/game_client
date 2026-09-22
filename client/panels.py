@@ -2,6 +2,9 @@
 from dataclasses import dataclass
 
 
+WINDOW_PAGE_SIZE = 5
+
+
 @dataclass
 class AnalyticsPanelState:
     visible: bool = False
@@ -26,9 +29,19 @@ class AnalyticsPanelState:
     ingest_by_action: tuple = ()
     ingest_message: str = '통계 다시 읽기를 누르면 이미 게시된 결과를 읽습니다.'
     ingest_error: str = ''
+    windows_pending: bool = False
+    windows_available: bool | None = None
+    windows_generated_at: str = ''
+    windows: tuple = ()
+    windows_message: str = '새로 읽기를 누르면 확정 시간 창을 읽습니다.'
+    windows_error: str = ''
+    window_kind: str = 'all'
+    window_page: int = 0
+    analytics_view: str = 'summary'
 
     def begin(self, authenticated, closing):
-        if not authenticated or closing or self.pending or self.ingest_pending:
+        if (not authenticated or closing or self.pending or self.ingest_pending
+                or self.windows_pending):
             return False
         self.visible = True
         self.pending = True
@@ -37,7 +50,8 @@ class AnalyticsPanelState:
         return True
 
     def begin_ingest(self, authenticated, closing):
-        if not authenticated or closing or self.pending or self.ingest_pending:
+        if (not authenticated or closing or self.pending or self.ingest_pending
+                or self.windows_pending):
             return False
         self.visible = True
         self.ingest_pending = True
@@ -45,8 +59,48 @@ class AnalyticsPanelState:
         self.ingest_error = ''
         return True
 
+    def begin_windows(self, authenticated, closing):
+        if (not authenticated or closing or self.pending or self.ingest_pending
+                or self.windows_pending):
+            return False
+        self.visible = True
+        self.analytics_view = 'windows'
+        self.windows_pending = True
+        self.windows_message = '확정 시간 창을 읽는 중…'
+        self.windows_error = ''
+        return True
+
+    def select_analytics_view(self, view):
+        if view in ('summary', 'windows'):
+            self.analytics_view = view
+
+    def select_window_kind(self, kind):
+        if kind in ('all', 'tumbling', 'sliding'):
+            self.window_kind = kind
+            self.window_page = 0
+
+    @property
+    def visible_windows(self):
+        if self.window_kind == 'all':
+            return self.windows
+        return tuple(row for row in self.windows if row['kind'] == self.window_kind)
+
+    @property
+    def window_page_count(self):
+        return max(1, (len(self.visible_windows) + WINDOW_PAGE_SIZE - 1)
+                   // WINDOW_PAGE_SIZE)
+
+    @property
+    def window_page_rows(self):
+        start = self.window_page * WINDOW_PAGE_SIZE
+        return self.visible_windows[start:start + WINDOW_PAGE_SIZE]
+
+    def change_window_page(self, delta):
+        self.window_page = max(0, min(
+            self.window_page + delta, self.window_page_count - 1))
+
     def hide(self):
-        if not self.pending and not self.ingest_pending:
+        if not self.pending and not self.ingest_pending and not self.windows_pending:
             self.visible = False
 
     def clear(self):
@@ -72,6 +126,15 @@ class AnalyticsPanelState:
         self.ingest_by_action = ()
         self.ingest_message = '통계 다시 읽기를 누르면 이미 게시된 결과를 읽습니다.'
         self.ingest_error = ''
+        self.windows_pending = False
+        self.windows_available = None
+        self.windows_generated_at = ''
+        self.windows = ()
+        self.windows_message = '새로 읽기를 누르면 확정 시간 창을 읽습니다.'
+        self.windows_error = ''
+        self.window_kind = 'all'
+        self.window_page = 0
+        self.analytics_view = 'summary'
 
     def apply(self, result):
         if result.kind == 'analytics':
@@ -137,6 +200,26 @@ class AnalyticsPanelState:
             self.ingest_pending = False
             self.ingest_message = result.message
             self.ingest_error = result.message
+            return True
+        if result.kind == 'windows':
+            data = result.player
+            self.windows_pending = False
+            self.windows_available = data['available']
+            self.windows_generated_at = data.get('generated_at', '')
+            self.windows = tuple(data.get('windows', ()))
+            self.windows_error = ''
+            self.window_page = 0
+            if not self.windows_available:
+                self.windows_message = '아직 창 요약 없음'
+            elif not self.windows:
+                self.windows_message = '확정된 게시 대상 창 없음'
+            else:
+                self.windows_message = '고정 snapshot · 마지막 집계 기준'
+            return True
+        if result.kind == 'windows_error':
+            self.windows_pending = False
+            self.windows_message = result.message
+            self.windows_error = result.message
             return True
         return False
 

@@ -47,6 +47,9 @@ class RenderContractTests(unittest.TestCase):
             'up', 'down', 'left', 'right', 'gather', 'train',
             'refresh', 'logout', 'delivery', 'analytics', 'history_panel',
             'analytics_refresh', 'ingest_refresh', 'api_player', 'api_history',
+            'api_windows', 'analytics_summary', 'analytics_windows',
+            'windows_all', 'windows_tumbling', 'windows_sliding',
+            'windows_refresh', 'windows_previous', 'windows_next',
         }
         self.assertEqual(expected, set(self.renderer.controls))
         for target in self.renderer.controls.values():
@@ -240,6 +243,64 @@ class RenderContractTests(unittest.TestCase):
         self.renderer.draw(state, self.analytics, self.history)
         self.assertTrue(any('마지막 수집 통계를 읽을 수 없음' in item for item in labels))
         self.assertNotIn('0', labels)
+
+    def test_windows_table_labels_cells_and_preserved_game_are_read_only(self):
+        state = State(authenticated=True, player=PLAYER.copy(), ws_connected=True)
+        self.analytics.visible = True
+        self.analytics.analytics_view = 'windows'
+        timestamp = '2026-09-22T09:00:00.000+09:00'
+        self.analytics.apply(Result('windows', player={
+            'available': True, 'generated_at': timestamp,
+            'windows': [dict(kind='tumbling', window_start=timestamp,
+                             window_end='2026-09-22T09:05:00.000+09:00',
+                             event_type='player.moved', count=index)
+                        for index in range(1, 7)],
+        }))
+        view = self.renderer._view
+        before = copy.deepcopy((state.__dict__, self.analytics.__dict__))
+        labels, cells = [], []
+        original_text, original_wrapped = view.text, view.wrapped
+
+        def capture_text(value, pos, color=None, font=None):
+            labels.append(str(value))
+            original_text(value, pos, **({'color': color} if color else {}), font=font)
+            if view.screen.get_clip().width < 150:
+                bounds = (font or view.font).render(str(value), True, (255, 255, 255))
+                self.assertTrue(view.screen.get_clip().contains(bounds.get_rect(topleft=pos)))
+
+        def capture_cell(value, x, y, width, **kwargs):
+            if str(value) == timestamp:
+                cells.append(str(value))
+            return original_wrapped(value, x, y, width, **kwargs)
+
+        view.text, view.wrapped = capture_text, capture_cell
+        self.renderer.draw(state, self.analytics, self.history)
+        self.assertIn('확정 시간 창의 전달 레코드 수(중복 전달 포함 가능)', labels)
+        self.assertIn('시작 포함 · 끝 미포함 [window_start, window_end)', labels)
+        self.assertIn(f'집계 생성 시각: {timestamp}', labels)
+        self.assertEqual(len(cells), 5)
+        self.assertIn('1 / 2 · 6행', labels)
+        self.assertEqual(before, (state.__dict__, self.analytics.__dict__))
+        self.assertEqual(view.slots['village-board'], pygame.Rect(688, 128, 248, 96))
+        self.assertEqual(view.slots['lobby-banner'], pygame.Rect(688, 236, 248, 96))
+
+    def test_windows_unavailable_and_empty_messages_are_distinct(self):
+        state = State(authenticated=True, player=PLAYER.copy())
+        self.analytics.visible = True
+        self.analytics.analytics_view = 'windows'
+        labels = []
+        self.renderer._view.text = lambda value, *_args, **_kwargs: labels.append(str(value))
+        for data, expected in (
+            ({'available': False}, '아직 창 요약 없음'),
+            ({'available': True, 'generated_at': '2026-09-22T00:00:00Z', 'windows': []},
+             '확정된 게시 대상 창 없음'),
+        ):
+            with self.subTest(data=data):
+                labels.clear()
+                self.analytics.apply(Result('windows', player=data))
+                self.renderer.draw(state, self.analytics, self.history)
+                self.assertIn(expected, labels)
+                self.assertNotIn('0', labels)
 
     def test_render_modules_do_not_import_other_concrete_layers(self):
         forbidden = {

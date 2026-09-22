@@ -119,21 +119,26 @@ def draw_analytics_panel(view: RenderSupport,
     view.button('ingest_refresh', '통계 다시 읽기', panel.ingest_pending)
     view.text('이미 게시된 결과를 읽습니다 · Spark 실행 없음 · Kafka 연결 없음',
               (ingest_x, ingest_y + 34), MUTED, view.tiny)
+    view.wrapped(
+        '확정 사실은 먼저 수집됩니다. 뒤 시각의 레코드로 watermark가 진행된 뒤 창이 확정됩니다. '
+        '창 요 약을 갱신한 다음 통계를 조회하세요.',
+        ingest_x, ingest_y + 53, ingest.width - 20, font=view.tiny, color=MUTED,
+    )
     if panel.ingest_pending:
-        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 58,
+        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 88,
                      ingest.width - 20, color=PENDING)
     elif panel.ingest_error:
-        view.wrapped(panel.ingest_error, ingest_x, ingest_y + 58,
+        view.wrapped(panel.ingest_error, ingest_x, ingest_y + 88,
                      ingest.width - 20, color=ERROR)
     elif panel.ingest_available is False:
-        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 58,
+        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 88,
                      ingest.width - 20, color=PENDING)
     elif panel.ingest_available is True:
         view.text(f'source: {panel.ingest_source[:42]}',
-                  (ingest_x, ingest_y + 57), MUTED, view.small)
+                  (ingest_x, ingest_y + 87), MUTED, view.small)
         view.text(f'생성: {panel.ingest_generated_at[:34]}',
-                  (ingest_x, ingest_y + 76), MUTED, view.small)
-        metric_y = ingest_y + 98
+                  (ingest_x, ingest_y + 106), MUTED, view.small)
+        metric_y = ingest_y + 128
         metric_width = (ingest.width - 32) // 3
         for index, (label, value) in enumerate((
             ('수집 레코드', panel.ingest_record_count),
@@ -146,7 +151,7 @@ def draw_analytics_panel(view: RenderSupport,
             pygame.draw.rect(view.screen, BG, metric, border_radius=6)
             view.text(label, (metric.x + 6, metric.y + 5), MUTED, view.tiny)
             view.text(str(value), (metric.x + 6, metric.y + 20), INK, view.small)
-        action_y = metric_y + 52
+        action_y = metric_y + 44
         view.text('event_type별', (ingest_x, action_y), TRAIN, view.tiny)
         for index, row in enumerate(panel.ingest_by_action[:4]):
             row_y = action_y + 17 + index * 16
@@ -156,7 +161,7 @@ def draw_analytics_panel(view: RenderSupport,
             view.text('행동별 수집 항목 없음', (ingest_x + 4, action_y + 17), MUTED,
                       view.tiny)
     else:
-        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 58,
+        view.wrapped(panel.ingest_message, ingest_x, ingest_y + 88,
                      ingest.width - 20, color=MUTED)
 
     if panel.error:

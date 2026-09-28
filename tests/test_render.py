@@ -95,6 +95,9 @@ class RenderContractTests(unittest.TestCase):
         self.renderer.draw(state, self.analytics, self.history)
 
         self.assertEqual(before, state.__dict__)
+        self.assertEqual(0, self.renderer._view.screen.get_masks()[3])
+        self.assertEqual(255, self.renderer._view.screen.get_at((0, 0)).a)
+        self.assertEqual(255, self.renderer._view.display.get_at((0, 0)).a)
 
     def test_game_and_overlay_draw_are_read_only(self):
         state = State(

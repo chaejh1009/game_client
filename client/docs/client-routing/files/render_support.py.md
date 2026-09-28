@@ -14,7 +14,7 @@ Pygame 창, 글꼴, 이미지, 가상 콘텐츠 화면과 공통 출력 primitiv
 
 ### `__init__(config: ConfigPort)`
 
-설정한 창 너비·높이 그대로 `RESIZABLE` display를 만들고, 960px 너비와 게임 영역 아래 측정 카드까지 포함하는 가상 `screen` Surface를 만든다. 글꼴·이미지와 모든 콘텐츠 좌표의 Rect를 준비한다.
+설정한 창 너비·높이 그대로 `RESIZABLE` display를 만들고, 960px 너비와 게임 영역 아래 측정 카드까지 포함하는 가상 `screen`을 알파 채널 없는 24비트 Surface로 만든다. 글꼴·이미지와 모든 콘텐츠 좌표의 Rect를 준비한다.
 
 ### `resize`, `scroll`, `_viewport`, `_clamp_scroll`
 

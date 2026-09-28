@@ -33,7 +33,7 @@ class RenderSupport:
         pygame.display.set_caption('Village Lab · 로컬 접속기')
         self.content_width = 960
         self.content_height = 1056
-        self.screen = pygame.Surface((self.content_width, self.content_height))
+        self.screen = pygame.Surface((self.content_width, self.content_height), depth=24)
         self.scroll_y = 0
         self.asset_errors: list[str] = []
         self._text_cache: OrderedDict[tuple, pygame.Surface] = OrderedDict()

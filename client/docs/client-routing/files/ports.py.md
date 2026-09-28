@@ -1,5 +1,9 @@
 # `client/ports.py`
 
+## 측정 조회 계약
+
+`ApiClientPort`와 `ResponseValidatorPort`에 load/metrics 조회·검증 메서드가 추가된다. `AnalyticsPanelPort`는 두 카드의 pending/data/message와 `begin_measurement`를 노출한다. `ControllerPort.request_measurement(kind)`는 명시적 조회를 worker에 맡긴다. `RendererPort.resize(width, height)`는 메인 스레드의 카드 배치를 다시 계산한다.
+
 ## 책임과 경계
 
 클라이언트 계층 사이의 추상 호출 계약을 `typing.Protocol`로 정의한다. 구현 객체를 생성하거나 I/O를 수행하지 않는다. 구현체는 Protocol을 직접 상속하지 않고 같은 속성과 signature를 제공하는 구조적 부분형 방식으로 계약을 만족한다.
@@ -45,12 +49,15 @@ ingest_record_count/ingest_event_count/ingest_duplicate_record_count
 ingest_by_action/ingest_message/ingest_error
 windows_pending/windows_available/windows_generated_at/windows
 windows_message/windows_error/window_kind/window_page/analytics_view
+load_pending/load_data/load_message
+metrics_pending/metrics_data/metrics_message
 visible_windows -> tuple (읽기 전용, 로컬 kind 필터)
 window_page_count -> int (읽기 전용, 최소 1)
 window_page_rows -> tuple (읽기 전용, 최대 5행)
 begin(authenticated, closing) -> bool
 begin_ingest(authenticated, closing) -> bool
 begin_windows(authenticated, closing) -> bool
+begin_measurement(kind, authenticated, closing) -> bool
 select_analytics_view(view) -> None
 select_window_kind(kind) -> None
 change_window_page(delta) -> None
@@ -103,6 +110,8 @@ validate_delivery(data) -> dict
 validate_analytics(data) -> dict
 validate_ingest(data) -> dict
 validate_windows(data) -> dict
+validate_load(data) -> dict
+validate_metrics(data) -> dict
 validate_history(data) -> dict
 ```
 
@@ -128,6 +137,8 @@ ApiClientPort.get_delivery() -> await dict
 ApiClientPort.get_analytics() -> await dict
 ApiClientPort.get_ingest() -> await dict
 ApiClientPort.get_windows() -> await dict
+ApiClientPort.get_load() -> await dict
+ApiClientPort.get_metrics() -> await dict
 ApiClientPort.get_history() -> await dict
 ```
 
@@ -158,6 +169,7 @@ pygame 타입을 추상계약에 노출하지 않고 clickable control에 필요
 
 ```text
 controls: Mapping[str, HitTargetPort]
+resize(width, height) -> None
 draw(state: StatePort,
      analytics_panel: AnalyticsPanelPort,
      history_panel: HistoryPanelPort) -> None
@@ -182,6 +194,7 @@ request_delivery() -> bool
 request_analytics() -> bool
 request_ingest() -> bool
 request_windows() -> bool
+request_measurement(kind) -> bool
 select_analytics_view(view) -> None
 select_window_kind(kind) -> None
 change_window_page(delta) -> None

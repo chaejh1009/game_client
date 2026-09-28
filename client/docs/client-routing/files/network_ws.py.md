@@ -100,4 +100,3 @@ finally waiter와 command_id 제거
 ```
 
 다른 player broadcast나 불일치 `command_id`는 자기 명령을 완료하지 않는다. replay 메시지는 처리하지 않는다.
-

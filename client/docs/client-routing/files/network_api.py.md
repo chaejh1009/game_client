@@ -1,8 +1,12 @@
 # `client/network_api.py`
 
+## 추가 GET
+
+`get_load()`와 `get_metrics()`는 기존 `_get`을 통해 같은 인증 `ClientSession`으로 각각 `/api/analytics/load/`, `/api/analytics/metrics/`를 한 번 읽는다. 검증은 `ResponseValidatorPort.validate_load`/`validate_metrics`에 맡긴다. `_get`의 redirect 비허용, 302/401 재로그인, timeout, JSON 크기 제한과 안전한 API inspector 결과 계약을 그대로 따른다.
+
 ## 책임과 경계
 
-주입받은 단일 ClientSession으로 여섯 개의 JSON 조회 API를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
+주입받은 단일 ClientSession으로 기존 JSON 조회 API와 두 측정 조회 API를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
 
 ## `ApiClient` 필드
 
@@ -78,6 +82,18 @@ _get('/api/analytics/windows/', validator.validate_windows)
 ```
 
 사용자의 새로 읽기 요청 한 번에 이미 게시된 시간 창 요약을 한 번 GET한다. 로컬 필터 선택은 이 메서드를 호출하지 않는다. 기존 인증 session과 timeout을 사용하며 원문 레코드 조회, Spark 작업, 서버 설정 변경은 만들지 않는다. `_get`이 status와 안전하게 투영한 JSON만 inspector 결과로 전달한다.
+
+### `get_load(self) -> dict` (`async`)
+
+```text
+_get('/api/analytics/load/', validator.validate_load)
+```
+
+### `get_metrics(self) -> dict` (`async`)
+
+```text
+_get('/api/analytics/metrics/', validator.validate_metrics)
+```
 
 ### `get_history(self) -> dict` (`async`)
 

@@ -38,6 +38,21 @@ class AnalyticsPanelState:
     window_kind: str = 'all'
     window_page: int = 0
     analytics_view: str = 'summary'
+    load_pending: bool = False
+    load_data: dict | None = None
+    load_message: str = '조회 버튼을 누르면 최근 수업 측정을 읽습니다.'
+    metrics_pending: bool = False
+    metrics_data: dict | None = None
+    metrics_message: str = '조회 버튼을 누르면 분석 전달 상태를 읽습니다.'
+
+    def begin_measurement(self, kind, authenticated, closing):
+        if kind not in ('load', 'metrics') or not authenticated or closing:
+            return False
+        if getattr(self, kind + '_pending'):
+            return False
+        setattr(self, kind + '_pending', True)
+        setattr(self, kind + '_message', '측정 결과를 읽는 중…')
+        return True
 
     def begin(self, authenticated, closing):
         if (not authenticated or closing or self.pending or self.ingest_pending
@@ -104,6 +119,12 @@ class AnalyticsPanelState:
             self.visible = False
 
     def clear(self):
+        self.load_pending = False
+        self.load_data = None
+        self.load_message = '조회 버튼을 누르면 최근 수업 측정을 읽습니다.'
+        self.metrics_pending = False
+        self.metrics_data = None
+        self.metrics_message = '조회 버튼을 누르면 분석 전달 상태를 읽습니다.'
         self.visible = False
         self.pending = False
         self.available = None
@@ -137,6 +158,18 @@ class AnalyticsPanelState:
         self.analytics_view = 'summary'
 
     def apply(self, result):
+        if result.kind in ('load', 'metrics'):
+            kind = result.kind
+            data = result.player
+            setattr(self, kind + '_pending', False)
+            setattr(self, kind + '_data', data if data['available'] else None)
+            setattr(self, kind + '_message', '' if data['available'] else '아직 측정 전')
+            return True
+        if result.kind in ('load_error', 'metrics_error'):
+            kind = result.kind.removesuffix('_error')
+            setattr(self, kind + '_pending', False)
+            setattr(self, kind + '_message', result.message)
+            return True
         if result.kind == 'analytics':
             data = result.player
             self.pending = False

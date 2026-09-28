@@ -1,10 +1,41 @@
 # `client/network_validation.py`
 
+## 부하·전달 측정 안전 투영
+
+`validate_load(data)`는 `available`을 확인하고, 게시된 `load`의 생성 시각·프로필 일부·연결/응답 카운트·초/처리율·nullable RTT·최대 100개 `by_room` 행의 `room_id`, `connected`, `success_count`만 검증해 반환한다. `validate_metrics(data)`는 게시된 `metrics`의 생성/시간 창 시각, 확정/표시 대기 건수, Kafka의 알려진 지연과 `lag_complete`, 선택적 Spark 진행 시각만 투영한다. 두 함수는 `available=false`일 때 숫자를 합성하지 않는다. `_measure_number`와 `_measure_text`가 유한한 음이 아닌 수치 범위/문자열 길이를 검사하며 실패 시 `Failure`를 반환한다.
+
 ## 책임과 경계
 
 외부 HTTP/WS 데이터를 허용 필드로 검증·투영하는 순수 검증 컴포넌트다. `ResponseValidatorPort`를 구조적으로 구현하며 session, socket, queue, pygame을 알지 않는다.
 
 ## `ResponseValidator` 메서드
+
+### `_measure_number(value, field, *, integer=False)`, `_measure_text(value, field)`
+
+```text
+측정 수치의 정확한 타입·음수/상한·유한 여부와 문자열의 비어 있지 않음/길이 검사
+허용된 값 반환, 실패하면 안전한 Failure
+```
+
+### `validate_load(self, data: dict) -> dict`
+
+```text
+available bool 검사; False이면 available만 반환
+load 객체와 profile 객체 검사
+생성 시각, profile의 허용 카운트, 연결·응답·RTT 수치만 투영
+by_room 최대 100행의 room_id/connected/success_count 검증·투영
+안전한 load 객체 반환
+```
+
+### `validate_metrics(self, data: dict) -> dict`
+
+```text
+available bool 검사; False이면 available만 반환
+metrics 객체에서 생성/구간 시각, confirmed_count, pending_mark_count 검증
+kafka.lag_complete bool, 선택적 known_lag_sum 검증
+spark_progress가 있으면 timestamp 문자열 또는 null만 투영
+안전한 metrics 객체 반환
+```
 
 ### `decode_ws_message(self, message, close_code: int | None) -> dict`
 

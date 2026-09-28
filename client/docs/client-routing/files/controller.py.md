@@ -1,5 +1,9 @@
 # `client/controller.py`
 
+## 측정 조회
+
+`request_measurement(kind)`는 `AnalyticsPanelPort.begin_measurement`가 허용할 때만 `Request(kind)`를 `NetworkPort.submit`에 전달한다. worker 결과는 기존 `apply_result`에서 패널의 `apply`를 거치며 로그인 만료 시 기존 계정·패널 초기화 경로를 따른다.
+
 ## 책임과 경계
 
 메인 스레드 애플리케이션 유스케이스를 조정한다. 로그인·조회·게임 명령을 `messages.Request`로 바꾸고, `messages.Result`를 상태·패널 포트에 배분한다. pygame 이벤트·Rect·프레임, HTTP/WS 형식, 구체 구현 클래스는 알지 않는다.
@@ -97,6 +101,14 @@ True 반환
 
 시간 창 `새로 읽기` 버튼의 요청 진입점이다. 한 번의 클릭으로 한 요청만 queue에 제출하고, `windows_pending`으로 진행 중 중복 요청을 막는다.
 
+### `request_measurement(self, kind: str) -> bool`
+
+```text
+AnalyticsPanelPort.begin_measurement(kind, authenticated, closing)이 거부하면 False
+NetworkPort.submit(Request(kind))
+True 반환
+```
+
 ### 시간 창의 로컬 표시 선택
 
 ```text
@@ -152,4 +164,4 @@ logged_out 또는 needs_login이면 두 패널 clear()
 ```
 
 패널 결과 적용 순서와 로그인 만료 시 일반 상태 적용을 보존한다.
-`analytics`/`analytics_error`와 `windows`/`windows_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. API 조회의 `Result(kind='api')`는 별도로 일반 상태에 전달되어 경로·status·검증된 JSON만 API 응답 보기에 표시한다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.
+`analytics`/`analytics_error`, `windows`/`windows_error`, `load`/`load_error`, `metrics`/`metrics_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. API 조회의 `Result(kind='api')`는 별도로 일반 상태에 전달되어 경로·status·검증된 JSON만 API 응답 보기에 표시한다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.

@@ -77,5 +77,11 @@ class ApiClient:
         return await self._get(
             '/api/analytics/windows/', self._validator.validate_windows)
 
+    async def get_load(self) -> dict:
+        return await self._get('/api/analytics/load/', self._validator.validate_load)
+
+    async def get_metrics(self) -> dict:
+        return await self._get('/api/analytics/metrics/', self._validator.validate_metrics)
+
     async def get_history(self) -> dict:
         return await self._get('/api/history/', self._validator.validate_history)

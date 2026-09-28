@@ -78,6 +78,13 @@ class ClientController:
         self.worker.submit(Request('windows'))
         return True
 
+    def request_measurement(self, kind: str) -> bool:
+        if not self.analytics_panel.begin_measurement(
+                kind, self.state.authenticated, self.state.closing):
+            return False
+        self.worker.submit(Request(kind))
+        return True
+
     def select_analytics_view(self, view: str) -> None:
         self.analytics_panel.select_analytics_view(view)
 

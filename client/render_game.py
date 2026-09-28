@@ -4,7 +4,8 @@ import math
 import time
 
 from ports import AnalyticsPanelPort, HistoryPanelPort, StatePort
-from render_panels import draw_analytics_panel, draw_api_panel, draw_history_panel
+from render_panels import (draw_analytics_panel, draw_api_panel,
+                           draw_history_panel, draw_measurement_cards)
 from render_support import ACCENT, ERROR, INK, MUTED, PENDING, RenderSupport
 from render_world import draw_world
 
@@ -172,3 +173,4 @@ def draw_game(view: RenderSupport, state: StatePort,
     draw_api_panel(view, state, analytics_panel, history_panel)
     draw_analytics_panel(view, analytics_panel)
     draw_history_panel(view, history_panel)
+    draw_measurement_cards(view, analytics_panel)

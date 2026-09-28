@@ -1,5 +1,9 @@
 # `client/render_support.py`
 
+## 하단 카드 배치
+
+창은 `RESIZABLE`로 열며 게임 높이 아래에 카드용 최소 높이를 확보한다. `minimum_height(width)`는 폭 900px 미만에서 두 카드의 세로 배치 높이를 반환한다. `resize(width, height)`는 창과 카드 Rect를 다시 만들고, `_prepare_measurement_layout`은 두 카드 및 각 조회 버튼 hitbox를 재계산한다. 게임 맵과 기존 컨트롤의 좌표는 유지한다.
+
 ## 책임과 경계
 
 렌더 계층의 공통 Pygame 인프라를 소유한다. 창, 글꼴, 이미지, 고정 배치와 hitbox를 준비하고 텍스트·버튼·타일·스프라이트 출력 primitive를 제공한다. 애플리케이션 상태나 패널 상태는 알지 않는다.
@@ -15,7 +19,7 @@
 ### `__init__(config: ConfigPort)`
 
 ```text
-설정 크기로 Pygame 창 생성 및 제목 지정
+설정 너비와 하단 카드용 최소 높이로 크기 조절 가능한 Pygame 창 생성 및 제목 지정
 _prepare_fonts와 _prepare_assets 호출
 _prepare_layout으로 map/slot/control/API panel Rect 계산
 ```
@@ -24,9 +28,27 @@ _prepare_layout으로 map/slot/control/API panel Rect 계산
 
 설정의 글꼴·이미지 경로를 준비한다. 실패하면 기본 글꼴 또는 fallback 도형을 사용하고 `asset_errors`에 안전한 안내만 저장한다.
 
+### `minimum_height(width) -> int`, `resize(width, height) -> None`
+
+```text
+minimum_height: 설정 게임 높이에 카드 배치 방식별 공간 추가
+resize: 최소 너비/높이를 적용해 RESIZABLE display 갱신
+_prepare_measurement_layout 호출
+```
+
+### `_prepare_measurement_layout() -> None`
+
+```text
+실제 화면 폭이 900px 미만이면 두 카드 세로 배치, 그 외 나란히 배치
+설정 게임 높이 아래에 load/metrics Rect 생성
+각 카드의 load_refresh/metrics_refresh 조회 버튼 Rect를 controls에 갱신
+```
+
 ### `_prepare_layout()`
 
 기존 좌표로 `map_rect`, `slots`, `api_panel`, `controls`를 만든다. `controls`의 Pygame Rect는 `HitTargetPort.collidepoint` 계약을 구조적으로 만족한다.
+
+마지막에 `_prepare_measurement_layout()`을 호출해 게임 아래 카드와 조회 버튼을 배치한다.
 
 - 통계 overlay의 `analytics_refresh`, `ingest_refresh`와 `analytics_summary`/`analytics_windows` 탭 hitbox를 고정한다.
 - 시간 창의 `windows_all`/`windows_tumbling`/`windows_sliding`, `windows_refresh`, `windows_previous`/`windows_next` Rect를 준비한다. 페이지 버튼은 설정 창 높이를 기준으로 아래쪽에 배치한다.

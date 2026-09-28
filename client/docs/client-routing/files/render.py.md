@@ -1,8 +1,12 @@
 # `client/render.py`
 
+## 창 크기 변경
+
+`Renderer.resize(width, height)`는 `RenderSupport.resize`를 호출한다. 장면 상태를 변경하거나 네트워크 요청을 수행하지 않는다.
+
 ## 책임과 경계
 
-렌더 계층의 공개 façade이다. `RendererPort`를 구조적으로 구현하고 로그인/게임 장면을 선택해 같은 계층의 전용 모듈로 위임한다. `ClientApp`에는 `controls`와 `draw(...)`만 노출한다.
+렌더 계층의 공개 façade이다. `RendererPort`를 구조적으로 구현하고 로그인/게임 장면을 선택해 같은 계층의 전용 모듈로 위임한다. `ClientApp`에는 `controls`, `draw(...)`, `resize(...)`를 노출한다.
 
 구체 상태·패널·네트워크·controller 모듈은 import하지 않으며 다음 포트만 입력으로 사용한다.
 
@@ -33,6 +37,12 @@ pygame.display.flip()으로 한 번만 frame 표시
 
 상태와 패널 객체는 읽기만 하며 변경하지 않는다.
 
+### `Renderer.resize(self, width: int, height: int) -> None`
+
+```text
+RenderSupport.resize(width, height) 호출
+```
+
 ## 호출 관계
 
 ```text
@@ -49,4 +59,4 @@ ClientApp -> RendererPort
 - [`render_login.py.md`](render_login.py.md): 로그인 장면
 - [`render_game.py.md`](render_game.py.md): 인증 후 화면 조정
 - [`render_world.py.md`](render_world.py.md): 맵과 플레이어
-- [`render_panels.py.md`](render_panels.py.md): API·통계·이력 패널
+- [`render_panels.py.md`](render_panels.py.md): API·통계·이력 패널과 하단 측정 카드

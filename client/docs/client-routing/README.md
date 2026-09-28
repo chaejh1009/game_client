@@ -49,7 +49,7 @@ main.py : 구체 구현 생성 및 추상계약 타입으로 조립
            -> render_login.py : 로그인 장면
            -> render_game.py : 게임 장면 조정
               -> render_world.py : 맵과 플레이어
-              -> render_panels.py : API, 통계, 이력
+              -> render_panels.py : API, 통계, 이력, 하단 측정 카드
 
 controller.py / network.py
   -> messages.py : Request/Result 값 계약
@@ -59,7 +59,7 @@ network.py
      -> /accounts/login/, /accounts/logout/
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
      -> /api/player/, /api/delivery/, /api/analytics/, /api/analytics/ingest/
-     -> /api/analytics/windows/, /api/history/
+     -> /api/analytics/windows/, /api/analytics/load/, /api/analytics/metrics/, /api/history/
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
@@ -75,13 +75,13 @@ network.py
 - `messages.py`: `Request`, `Result`와 허용 필드 상수만 정의하며 상태나 I/O를 갖지 않는다.
 - `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·검증 구현은 포트로 호출한다.
 - `network_auth.py`: Django form/CSRF/cookie 계약만 안다.
-- `network_api.py`: 여섯 JSON endpoint와 JSON transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
+- `network_api.py`: 기존 JSON endpoint와 부하·전달 측정 GET의 transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_ws.py`: `/ws/play/`, broadcast, `command_id` waiter만 알고 응답 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_validation.py`: 외부 데이터 검증과 안전 투영만 하며 네트워크 I/O를 하지 않는다.
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
-- `panels.py`: 행동 집계·Kafka 수집·시간 창 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다. 시간 창의 종류 필터와 페이지 이동은 받은 배열에만 적용한다.
-- `render.py`: `RendererPort` façade로서 장면만 선택하고 frame을 표시한다.
+- `panels.py`: 행동 집계·Kafka 수집·시간 창·부하 측정·전달 측정 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다. 시간 창의 종류 필터와 페이지 이동은 받은 배열에만 적용한다.
+- `render.py`: `RendererPort` façade로서 장면을 선택하고 frame을 표시하며 창 크기 변경을 렌더 지원 계층에 전달한다.
 - `render_support.py`: 상태를 모르며 pygame 자산, 배치, hitbox와 공통 출력만 소유한다.
 - `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
 - `config.json`: 값만 제공하며 호출 관계를 갖지 않는다.
@@ -115,8 +115,11 @@ network.py
 - 시간 창 `새로 읽기` 또는 API 응답 보기의 `windows` 버튼을 한 번 누르면 기존 인증 ClientSession worker가 `server_base_url + /api/analytics/windows/`를 GET한다. 요청과 결과는 thread-safe queue를 통과하며, Pygame 폰트·Rect·그리기는 메인 스레드에서 수행한다.
 - 시간 창 표는 `확정 시간 창의 전달 레코드 수(중복 전달 포함 가능)`과 `시작 포함 · 끝 미포함 [window_start, window_end)`를 표시한다. `generated_at`은 집계 생성 시각이며 현재 게임의 `coords`·`coins`·`version`을 바꾸지 않는다.
 - `available=false`는 `아직 창 요약 없음`, 게시 가능한 창 배열이 비면 `확정된 게시 대상 창 없음`으로 구분한다. `all`/`tumbling`/`sliding`과 5행 페이지는 받은 작은 배열을 화면에서 필터할 뿐 Spark 작업이나 서버 설정 변경을 요청하지 않는다.
-- API 응답 보기는 player/history/windows/analytics GET의 경로·status·안전한 응답 JSON만 표시한다. `allow_redirects=False`, timeout, status/Content-Type 검사를 유지하며 HTML을 JSON으로 읽지 않고 auth·쿠키·CSRF를 표시하지 않는다.
+- API 응답 보기는 player/history/windows/analytics/load/metrics GET의 경로·status·안전한 응답 JSON만 표시한다. `allow_redirects=False`, timeout, status/Content-Type 검사를 유지하며 HTML을 JSON으로 읽지 않고 auth·쿠키·CSRF를 표시하지 않는다.
 - 기존 통계 탭의 game-summary 표, 온라인 상태, `village-board`/`lobby-banner` 광고용 두 Rect, `client/assets` 이미지와 한글 폰트를 유지한다. 접속기별 독립 인증 세션과 로그아웃·worker 종료·Pygame 종료 순서를 유지한다.
+- 게임 아래 `최근 수업 측정`과 `분석 전달 상태` 카드는 각각 조회 버튼을 눌렀을 때만 기존 인증 ClientSession worker에서 `/api/analytics/load/`, `/api/analytics/metrics/`를 GET한다. 결과는 queue를 거쳐 메인 스레드의 기존 카드 내용을 교체한다. 창 폭 900px 미만에서는 두 카드를 세로로 배치하고 게임 영역 아래에 둔다.
+- `available=false`는 `아직 측정 전`, null RTT는 `표본 없음`이다. 연결 수는 개, 처리율은 건/초, RTT는 ms로 표시한다. 부하 측정의 방별 표는 `room_id`/`connected`/`success_count`만 사용하며 DB 플레이어 수나 화면 캐릭터 수에서 측정값을 계산하지 않는다.
+- 전달 카드에서는 `metrics.generated_at`과 `spark_progress.timestamp`를 별도로 표시하고 `kafka.lag_complete=false`이면 `일부 위치 미확인`을 붙인다. 조회 버튼은 저장된 결과만 읽으며 부하 측정이나 Spark 작업을 시작하지 않는다. 302/401은 기존 재로그인 흐름을 따르고 인증 원문을 기록하지 않는다.
 - replay 기능과 replay 호출 경로는 만들지 않는다.
 - 서버·Spark 코드와 기존 API/WS 계약은 변경 대상이 아니다.
 

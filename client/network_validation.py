@@ -1,5 +1,6 @@
 """Pure validation and safe projections for HTTP and WebSocket data."""
 import json
+import math
 
 import aiohttp
 
@@ -8,6 +9,95 @@ from network_errors import Failure
 
 
 class ResponseValidator:
+    @staticmethod
+    def _measure_number(value, field, *, integer=False):
+        valid = type(value) is int if integer else type(value) in (int, float)
+        if not valid or value < 0 or value > 10**15 or (
+                type(value) is float and not math.isfinite(value)):
+            raise Failure(f'측정 응답의 {field}을 확인하세요.')
+        return value
+
+    @staticmethod
+    def _measure_text(value, field):
+        if not isinstance(value, str) or not value or len(value) > 120:
+            raise Failure(f'측정 응답의 {field}을 확인하세요.')
+        return value
+
+    def validate_load(self, data: dict) -> dict:
+        available = data.get('available')
+        if type(available) is not bool:
+            raise Failure('부하 측정 응답의 available을 확인하세요.')
+        if not available:
+            return {'available': False}
+        source = data.get('load')
+        if not isinstance(source, dict):
+            raise Failure('부하 측정 응답의 load를 확인하세요.')
+        profile = source.get('profile')
+        if not isinstance(profile, dict):
+            raise Failure('부하 측정 응답의 profile을 확인하세요.')
+        safe_profile = {}
+        for key in ('clients', 'seconds', 'players_per_room', 'asgi_processes'):
+            if key in profile:
+                safe_profile[key] = self._measure_number(profile[key], key, integer=True)
+        safe = {'generated_at': self._measure_text(source.get('generated_at'), 'generated_at'),
+                'profile': safe_profile}
+        for key in ('connected_success', 'connected_peak', 'attempt_count',
+                    'success_count', 'error_count', 'rtt_sample_count'):
+            safe[key] = self._measure_number(source.get(key), key, integer=True)
+        for key in ('elapsed_seconds', 'success_per_second'):
+            safe[key] = self._measure_number(source.get(key), key)
+        for key in ('rtt_mean_ms', 'rtt_p95_ms'):
+            value = source.get(key)
+            safe[key] = None if value is None else self._measure_number(value, key)
+        rows = source.get('by_room')
+        if not isinstance(rows, list) or len(rows) > 100:
+            raise Failure('부하 측정 응답의 by_room을 확인하세요.')
+        safe['by_room'] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise Failure('부하 측정 응답의 by_room 행을 확인하세요.')
+            room = row.get('room_id')
+            if type(room) is not int and not (isinstance(room, str) and 0 < len(room) <= 80):
+                raise Failure('부하 측정 응답의 room_id를 확인하세요.')
+            safe['by_room'].append({
+                'room_id': room,
+                'connected': self._measure_number(row.get('connected'), 'connected', integer=True),
+                'success_count': self._measure_number(row.get('success_count'), 'success_count', integer=True),
+            })
+        return {'available': True, 'load': safe}
+
+    def validate_metrics(self, data: dict) -> dict:
+        available = data.get('available')
+        if type(available) is not bool:
+            raise Failure('전달 측정 응답의 available을 확인하세요.')
+        if not available:
+            return {'available': False}
+        source = data.get('metrics')
+        if not isinstance(source, dict):
+            raise Failure('전달 측정 응답의 metrics를 확인하세요.')
+        safe = {key: self._measure_text(source.get(key), key)
+                for key in ('generated_at', 'window_start', 'window_end')}
+        for key in ('confirmed_count', 'pending_mark_count'):
+            safe[key] = self._measure_number(source.get(key), key, integer=True)
+        kafka = source.get('kafka')
+        if not isinstance(kafka, dict) or type(kafka.get('lag_complete')) is not bool:
+            raise Failure('전달 측정 응답의 kafka를 확인하세요.')
+        safe['kafka'] = {'lag_complete': kafka['lag_complete']}
+        if kafka.get('known_lag_sum') is not None:
+            safe['kafka']['known_lag_sum'] = self._measure_number(
+                kafka['known_lag_sum'], 'known_lag_sum', integer=True)
+        progress = source.get('spark_progress')
+        if progress is not None:
+            if not isinstance(progress, dict):
+                raise Failure('전달 측정 응답의 spark_progress를 확인하세요.')
+            timestamp = progress.get('timestamp')
+            safe['spark_progress'] = {
+                'timestamp': None if timestamp is None
+                else self._measure_text(timestamp, 'spark_progress.timestamp')}
+        else:
+            safe['spark_progress'] = None
+        return {'available': True, 'metrics': safe}
+
     def decode_ws_message(self, message, close_code: int | None) -> dict:
         if message.type != aiohttp.WSMsgType.TEXT:
             raise Failure('게임 연결이 종료되었습니다.', close_code == 4401)

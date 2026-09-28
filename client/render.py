@@ -22,3 +22,6 @@ class Renderer:
         else:
             draw_login(self._view, state)
         pygame.display.flip()
+
+    def resize(self, width: int, height: int) -> None:
+        self._view.resize(width, height)

@@ -1,5 +1,9 @@
 # `client/panels.py`
 
+## 게임 아래 측정 카드 상태
+
+`AnalyticsPanelState`는 카드별 `load_pending/load_data/load_message`와 `metrics_pending/metrics_data/metrics_message`를 보관한다. `begin_measurement(kind, authenticated, closing)`은 인증·종료·동종 요청 중복을 확인한 뒤 pending으로 바꾼다. `apply`는 검증된 새 응답으로 기존 data를 교체하고 `available=false`를 `아직 측정 전`으로 표시하며, 오류에서는 기존 data와 오류 메시지를 유지한다. `clear`는 로그아웃·재로그인 시 두 카드도 초기화한다.
+
 ## 책임과 경계
 
 선택형 정보 패널의 메인 스레드 상태 전이만 소유한다. `AnalyticsPanelState`와 `HistoryPanelState`는 각각 대응하는 panel port를 구조적으로 구현한다. 네트워크 요청을 만들지 않고, 렌더링하지 않으며, 검증이 끝난 `messages.Result`만 소비한다.
@@ -19,6 +23,7 @@
 - `analytics_view`: `summary` 또는 `windows` 탭. 기본값 `summary`.
 - `window_kind`, `window_page`: 메인 스레드에서 선택한 `all`/`tumbling`/`sliding` 필터와 0부터 시작하는 페이지. 기본값 `all`, `0`.
 - `WINDOW_PAGE_SIZE=5`: 한 페이지에 표시할 창 행 수.
+- `load_pending/load_data/load_message`, `metrics_pending/metrics_data/metrics_message`: 두 측정 카드의 진행 상태, 검증된 snapshot, 표시 문구.
 
 ### `begin(self, authenticated: bool, closing: bool) -> bool`
 
@@ -53,6 +58,14 @@ visible=True, analytics_view='windows', windows_pending=True
 True
 ```
 
+### `begin_measurement(self, kind: str, authenticated: bool, closing: bool) -> bool`
+
+```text
+kind가 load/metrics가 아니거나 미인증·종료·동종 요청 중이면 False
+해당 pending=True와 읽는 중 메시지 설정
+True
+```
+
 ### `select_analytics_view(self, view: str) -> None`
 
 ```text
@@ -81,6 +94,7 @@ change_window_page(delta) -> 0부터 마지막 페이지 사이로 페이지 이
 ```text
 표시/진행 상태와 모든 집계 값을 초기값으로 복원
 시간 창 snapshot/안내와 탭·필터·페이지 선택도 초기값으로 복원
+load/metrics의 진행 상태·snapshot·안내도 초기값으로 복원
 ```
 
 ### `apply(self, result: Result) -> bool`
@@ -105,6 +119,8 @@ windows이면 windows_pending 해제
     행이 있으면 마지막 집계 snapshot 안내
     True
 windows_error이면 windows_pending 해제, 오류 메시지 저장, 기존 창 snapshot/생성 시각 보존, True
+load/metrics이면 해당 pending 해제, available에 따라 새 data로 교체하거나 '아직 측정 전' 설정, True
+load_error/metrics_error이면 해당 pending 해제, 기존 data를 보존하고 오류 메시지 설정, True
 그 외 False
 ```
 

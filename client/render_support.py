@@ -27,12 +27,22 @@ class RenderSupport:
 
     def __init__(self, config: ConfigPort) -> None:
         self.config = config
-        self.screen = pygame.display.set_mode((config.window_width, config.window_height))
+        self.screen = pygame.display.set_mode(
+            (config.window_width, self.minimum_height(config.window_width)), pygame.RESIZABLE)
         pygame.display.set_caption('Village Lab · 로컬 접속기')
         self.asset_errors: list[str] = []
         self._prepare_fonts()
         self._prepare_assets()
         self._prepare_layout()
+
+    def minimum_height(self, width: int) -> int:
+        return self.config.window_height + (660 if width < 900 else 336)
+
+    def resize(self, width: int, height: int) -> None:
+        width = max(640, width)
+        self.screen = pygame.display.set_mode(
+            (width, max(height, self.minimum_height(width))), pygame.RESIZABLE)
+        self._prepare_measurement_layout()
 
     def _prepare_fonts(self) -> None:
         font_path = self.config.font_path
@@ -156,6 +166,26 @@ class RenderSupport:
                 26,
             ),
         })
+        self._prepare_measurement_layout()
+
+    def _prepare_measurement_layout(self) -> None:
+        width = self.screen.get_width()
+        top = self.config.window_height + 12
+        if width < 900:
+            self.measurement_cards = {
+                'load': pygame.Rect(24, top, width - 48, 310),
+                'metrics': pygame.Rect(24, top + 322, width - 48, 310),
+            }
+        else:
+            card_width = (width - 60) // 2
+            self.measurement_cards = {
+                'load': pygame.Rect(24, top, card_width, 310),
+                'metrics': pygame.Rect(36 + card_width, top, card_width, 310),
+            }
+        for kind in ('load', 'metrics'):
+            card = self.measurement_cards[kind]
+            self.controls[kind + '_refresh'] = pygame.Rect(
+                card.right - 84, card.y + 12, 70, 28)
 
     def text(self, value: Any, pos: Any, color=INK, font=None) -> None:
         self.screen.blit((font or self.font).render(str(value), True, color), pos)

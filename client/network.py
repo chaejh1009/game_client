@@ -74,6 +74,7 @@ class NetworkWorker:
             ingest_task = None
             windows_task = None
             history_task = None
+            measurement_tasks = {'load': None, 'metrics': None}
             try:
                 while True:
                     if active is not None and active.done():
@@ -94,6 +95,10 @@ class NetworkWorker:
                     if history_task is not None and history_task.done():
                         await history_task
                         history_task = None
+                    for kind, task in measurement_tasks.items():
+                        if task is not None and task.done():
+                            await task
+                            measurement_tasks[kind] = None
                     try:
                         request = self.requests.get_nowait()
                     except Empty:
@@ -141,6 +146,14 @@ class NetworkWorker:
                             self.results.put(Result(
                                 'history_error', '행동 이력 요청이 이미 진행 중입니다.'))
                         continue
+                    if request.kind in measurement_tasks:
+                        if measurement_tasks[request.kind] is None:
+                            measurement_tasks[request.kind] = asyncio.create_task(
+                                self._dispatch(request, auth, api, game_socket))
+                        else:
+                            self.results.put(Result(request.kind + '_error',
+                                                    '측정 조회가 이미 진행 중입니다.'))
+                        continue
                     if active is None:
                         active = asyncio.create_task(
                             self._dispatch(request, auth, api, game_socket))
@@ -156,10 +169,13 @@ class NetworkWorker:
                         windows_task, history_task):
                     if task is not None:
                         task.cancel()
+                for task in measurement_tasks.values():
+                    if task is not None:
+                        task.cancel()
                 await asyncio.gather(
                     *(task for task in (
                         active, delivery_task, analytics_task, ingest_task,
-                        windows_task, history_task)
+                        windows_task, history_task, *measurement_tasks.values())
                       if task is not None),
                     return_exceptions=True)
                 await game_socket.shutdown()
@@ -218,6 +234,12 @@ class NetworkWorker:
                 history = await api.get_history()
                 self.results.put(Result(
                     'history', '최근 행동 이력을 읽었습니다.', player=history))
+            elif request.kind in ('load', 'metrics'):
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                data = await (api.get_load() if request.kind == 'load'
+                              else api.get_metrics())
+                self.results.put(Result(request.kind, player=data))
             elif request.kind == 'logout':
                 try:
                     await game_socket.close()
@@ -262,6 +284,8 @@ class NetworkWorker:
                 kind = 'windows_error'
             elif request.kind == 'history':
                 kind = 'history_error'
+            elif request.kind in ('load', 'metrics'):
+                kind = request.kind + '_error'
             else:
                 kind = 'error'
             self.results.put(Result(

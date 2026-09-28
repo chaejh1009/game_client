@@ -40,6 +40,7 @@ class ClientApp:
             'delivery', 'train', 'api_player', 'api_history', 'api_windows',
             'api_analytics', 'analytics',
             'history_panel',
+            'load_refresh', 'metrics_refresh',
         )
         panel = self.analytics_panel
         if panel.visible:
@@ -72,6 +73,8 @@ class ClientApp:
                 self.controller.request_command('train')
             elif name == 'delivery':
                 self.controller.request_delivery()
+            elif name in ('load_refresh', 'metrics_refresh'):
+                self.controller.request_measurement(name.removesuffix('_refresh'))
             elif name == 'analytics':
                 self.controller.toggle_analytics()
             elif name in ('analytics_refresh', 'api_analytics'):
@@ -114,6 +117,8 @@ class ClientApp:
     def _handle_event(self, event: Any, renderer: RendererPort) -> None:
         if event.type == pygame.QUIT and not self.state.closing:
             self.controller.begin_shutdown()
+        elif event.type == pygame.VIDEORESIZE:
+            renderer.resize(event.w, event.h)
         elif not self.state.closing and not self.state.busy:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_mouse(event, renderer)

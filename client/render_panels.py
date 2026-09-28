@@ -17,6 +17,75 @@ from render_support import (
 )
 
 
+def draw_measurement_cards(view: RenderSupport, panel: AnalyticsPanelPort) -> None:
+    """Draw published measurements below the fixed game region."""
+    for kind, title, tint in (
+            ('load', '최근 수업 측정', ACCENT),
+            ('metrics', '분석 전달 상태', TRAIN)):
+        rect = view.measurement_cards[kind]
+        pygame.draw.rect(view.screen, CARD, rect, border_radius=10)
+        pygame.draw.rect(view.screen, tint, rect, width=1, border_radius=10)
+        previous = view.screen.get_clip()
+        view.screen.set_clip(rect.inflate(-10, -8))
+        x, y = rect.x + 14, rect.y + 12
+        view.text(title, (x, y), tint, view.font)
+        view.button(kind + '_refresh', '조회', getattr(panel, kind + '_pending'))
+        data = getattr(panel, kind + '_data')
+        message = getattr(panel, kind + '_message')
+        if data is None:
+            view.wrapped(message, x, y + 45, rect.width - 28,
+                         color=ERROR if '실패' in message or '확인' in message else PENDING)
+        elif kind == 'load':
+            load = data['load']
+            view.text(f"생성: {load['generated_at'][:40]}", (x, y + 39), MUTED, view.tiny)
+            profile = load['profile']
+            view.text(f"설정 접속 {profile.get('clients', '—')}개 · "
+                      f"측정 {profile.get('seconds', '—')}초", (x, y + 59), MUTED, view.small)
+            lines = (
+                f"연결 성공 {load['connected_success']}개 · 최대 {load['connected_peak']}개",
+                f"시도 {load['attempt_count']}건 · 성공 {load['success_count']}건 · 오류 {load['error_count']}건",
+                f"소요 {load['elapsed_seconds']:.1f}초 · 처리율 {load['success_per_second']:.2f}건/초",
+                f"RTT 표본 {load['rtt_sample_count']}건 · 평균 {_rtt(load['rtt_mean_ms'])} · p95 {_rtt(load['rtt_p95_ms'])}",
+            )
+            for index, line in enumerate(lines):
+                view.text(line, (x, y + 84 + index * 22), INK, view.tiny)
+            view.text('room_id', (x, y + 183), tint, view.tiny)
+            view.text('이번 연결 수', (x + 118, y + 183), tint, view.tiny)
+            view.text('성공 응답 수', (x + 260, y + 183), tint, view.tiny)
+            for index, row in enumerate(load['by_room'][:4]):
+                row_y = y + 203 + index * 18
+                view.text(str(row['room_id'])[:14], (x, row_y), INK, view.tiny)
+                view.text(f"{row['connected']}개", (x + 118, row_y), INK, view.tiny)
+                view.text(f"{row['success_count']}건", (x + 260, row_y), INK, view.tiny)
+            if len(load['by_room']) > 4:
+                view.text(f"외 {len(load['by_room']) - 4}개 방", (x, y + 278), MUTED, view.tiny)
+            elif not load['by_room']:
+                view.text('방별 측정 없음', (x, y + 203), MUTED, view.tiny)
+        else:
+            metrics = data['metrics']
+            lines = (
+                f"측정 생성: {metrics['generated_at'][:40]}",
+                f"구간 시작: {metrics['window_start'][:40]}",
+                f"구간 끝: {metrics['window_end'][:40]}",
+                f"확정 {metrics['confirmed_count']}건 · 발행 표시 대기 {metrics['pending_mark_count']}건",
+                f"Kafka 알려진 지연 {metrics['kafka'].get('known_lag_sum', '—')}건"
+                + ('' if metrics['kafka']['lag_complete'] else ' · 일부 위치 미확인'),
+                'Spark 진행 시각: ' +
+                str((metrics['spark_progress'] or {}).get('timestamp') or '표본 없음')[:40],
+            )
+            for index, line in enumerate(lines):
+                view.wrapped(line, x, y + 44 + index * 35, rect.width - 28,
+                             font=view.tiny, color=INK if index >= 3 else MUTED)
+        if data is not None and message:
+            view.text(message[:55], (x, rect.bottom - 25),
+                      PENDING if getattr(panel, kind + '_pending') else ERROR, view.tiny)
+        view.screen.set_clip(previous)
+
+
+def _rtt(value) -> str:
+    return '표본 없음' if value is None else f'{value:.1f} ms'
+
+
 def draw_analytics_panel(view: RenderSupport,
                          panel: AnalyticsPanelPort | None) -> None:
     if panel is None or not panel.visible:

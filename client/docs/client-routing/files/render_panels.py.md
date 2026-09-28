@@ -1,10 +1,30 @@
 # `client/render_panels.py`
 
+## 하단 측정 카드
+
+`draw_measurement_cards(view, panel)`은 고정된 두 카드의 Rect에 검증된 부하·전달 측정 snapshot을 그린다. 연결은 개, 처리율은 건/초, RTT는 ms로 표시하며 `_rtt(None)`은 `표본 없음`을 반환한다. `by_room`은 `room_id`/이번 연결 수/성공 응답 수 표로 출력한다. 전달 카드에는 `metrics.generated_at`, 구간 시각, `spark_progress.timestamp`를 별도로 쓰고 `lag_complete=false`에 `일부 위치 미확인`을 붙인다. clip 안에서 기존 카드만 다시 그리며 요청·상태 변경은 수행하지 않는다.
+
 ## 책임과 경계
 
-API 응답, 확정 행동 통계, Kafka 수집 통계, 확정 시간 창 표, 최근 행동 이력 패널을 출력한다. 모든 값은 `StatePort`, `AnalyticsPanelPort`, `HistoryPanelPort`를 통해 전달받으며 서버 요청이나 패널 상태 전이를 수행하지 않는다. Pygame 글꼴·Rect·Surface 출력은 메인 스레드에서 수행한다.
+API 응답, 확정 행동 통계, Kafka 수집 통계, 확정 시간 창 표, 최근 행동 이력 패널과 게임 아래 두 측정 카드를 출력한다. 모든 값은 `StatePort`, `AnalyticsPanelPort`, `HistoryPanelPort`를 통해 전달받으며 서버 요청이나 패널 상태 전이를 수행하지 않는다. Pygame 글꼴·Rect·Surface 출력은 메인 스레드에서 수행한다.
 
 ## 함수
+
+### `draw_measurement_cards(view, panel) -> None`
+
+```text
+load/metrics 카드의 Rect에 제목과 조회 버튼 출력
+data가 없으면 안내 또는 오류 메시지 출력
+load data가 있으면 생성 시각·프로필·연결/응답/처리율/RTT와 방별 최대 4행 출력
+metrics data가 있으면 생성/구간/Spark 진행 시각·확정/대기/지연 및 lag_complete 안내 출력
+기존 clip 복원
+```
+
+### `_rtt(value) -> str`
+
+```text
+None이면 '표본 없음', 아니면 소수 첫째 자리와 ms 단위 반환
+```
 
 ### `draw_api_panel(view, state, analytics_panel, history_panel) -> None`
 

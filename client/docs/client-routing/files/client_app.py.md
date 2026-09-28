@@ -1,5 +1,9 @@
 # `client/client_app.py`
 
+## 하단 카드 이벤트
+
+인증 상태의 `_control_names`에 `load_refresh`, `metrics_refresh`를 포함한다. `_handle_mouse`는 해당 버튼을 `ControllerPort.request_measurement`로 라우팅한다. `_handle_event`는 `VIDEORESIZE`를 `RendererPort.resize`에 전달해 메인 스레드에서 카드 배치를 갱신한다. 결과는 기존 `_drain_results` queue 경로로 소비한다.
+
 ## 책임과 경계
 
 pygame 초기화·종료와 메인 스레드 프레임 루프를 소유한다. 사용자 이벤트를 `ControllerPort`로 라우팅하고 `NetworkPort` 결과를 소비하며 `RendererPort`를 매 프레임 호출한다. 요청 허용 규칙, 상태 병합, 서버 프로토콜과 구체 구현은 알지 않는다.
@@ -41,6 +45,7 @@ pygame 초기화나 worker 시작은 아직 하지 않음
 ```text
 미인증이면 username/password/login control 반환
 인증이면 게임 명령, 조회, 로그아웃, 패널 control 반환
+하단 카드의 load_refresh/metrics_refresh control 포함
 API 응답 보기에는 api_player/api_history/api_windows/api_analytics 포함
 통계 패널이 보이면 analytics_summary/analytics_windows 탭 control 추가
 idle = 행동 통계·ingest·windows 중 진행 중인 요청이 없음
@@ -63,6 +68,7 @@ RendererPort.controls[name]과 event.pos 충돌 검사
 analytics_refresh/api_analytics이면 request_analytics 호출
 ingest_refresh이면 request_ingest 호출
 windows_refresh/api_windows이면 request_windows 호출
+load_refresh/metrics_refresh이면 request_measurement('load'/'metrics') 호출
 analytics_summary/analytics_windows이면 select_analytics_view 호출
 windows_all/windows_tumbling/windows_sliding이면 select_window_kind 호출
 windows_previous/windows_next이면 change_window_page(-1/+1) 호출
@@ -88,6 +94,7 @@ refresh는 submit('player'), logout/login은 해당 kind submit
 
 ```text
 QUIT이고 아직 종료 중이 아니면 controller.begin_shutdown()
+VIDEORESIZE이면 RendererPort.resize(event.w, event.h)
 closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
 미인증 TEXTINPUT이면 printable 문자만 username 150자/password 256자로 제한해 저장
 ```

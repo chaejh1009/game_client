@@ -120,7 +120,7 @@ def draw_game(view: RenderSupport, state: StatePort,
         f'온라인 {state.online_count}명{stale}',
         room_panel.x + 12,
         room_panel.y + 30,
-        112,
+        room_panel.width - 24,
         color=INK if state.ws_connected else PENDING,
     )
     _draw_delivery(view, state)
@@ -170,6 +170,7 @@ def draw_game(view: RenderSupport, state: StatePort,
         analytics_disabled or state.busy or state.closing,
     )
     _draw_command_status(view, state)
+    view.text('휠 ↓ 부하·전달 측정 보기', (24, 690), MUTED, view.small)
     draw_api_panel(view, state, analytics_panel, history_panel)
     draw_analytics_panel(view, analytics_panel)
     draw_history_panel(view, history_panel)

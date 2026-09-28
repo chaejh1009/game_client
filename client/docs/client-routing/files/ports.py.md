@@ -170,6 +170,9 @@ pygame 타입을 추상계약에 노출하지 않고 clickable control에 필요
 ```text
 controls: Mapping[str, HitTargetPort]
 resize(width, height) -> None
+scroll(amount) -> None
+pointer_to_content(pos) -> tuple[int, int]
+text_input_rect(name) -> Any
 draw(state: StatePort,
      analytics_panel: AnalyticsPanelPort,
      history_panel: HistoryPanelPort) -> None

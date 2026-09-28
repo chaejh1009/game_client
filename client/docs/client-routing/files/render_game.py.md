@@ -1,5 +1,8 @@
 # `client/render_game.py`
 
+마을 정보 카드의 온라인 인원 문구는 카드 내부 전체 너비로 줄을 나눠 전달 상태 문구와 겹치지 않게 출력한다.
+게임 영역 아래에는 휠로 측정 카드를 볼 수 있다는 안내를 출력한다.
+
 ## 하단 측정 카드 호출
 
 `draw_game`은 기존 게임/패널 출력 뒤 `render_panels.draw_measurement_cards(view, analytics_panel)`를 호출한다. 하단 카드는 게임 영역과 별도 Rect에 그린다.

@@ -1,12 +1,8 @@
 # `client/render_support.py`
 
-## 하단 카드 배치
-
-창은 `RESIZABLE`로 열며 게임 높이 아래에 카드용 최소 높이를 확보한다. `minimum_height(width)`는 폭 900px 미만에서 두 카드의 세로 배치 높이를 반환한다. `resize(width, height)`는 창과 카드 Rect를 다시 만들고, `_prepare_measurement_layout`은 두 카드 및 각 조회 버튼 hitbox를 재계산한다. 게임 맵과 기존 컨트롤의 좌표는 유지한다.
-
 ## 책임과 경계
 
-렌더 계층의 공통 Pygame 인프라를 소유한다. 창, 글꼴, 이미지, 고정 배치와 hitbox를 준비하고 텍스트·버튼·타일·스프라이트 출력 primitive를 제공한다. 애플리케이션 상태나 패널 상태는 알지 않는다.
+Pygame 창, 글꼴, 이미지, 가상 콘텐츠 화면과 공통 출력 primitive를 소유한다. 애플리케이션 상태나 네트워크 요청은 알지 않는다. `Renderer`가 이 객체를 통해 창 크기·스크롤·입력 좌표를 일관되게 처리한다.
 
 ## 값
 
@@ -18,50 +14,30 @@
 
 ### `__init__(config: ConfigPort)`
 
-```text
-설정 너비와 하단 카드용 최소 높이로 크기 조절 가능한 Pygame 창 생성 및 제목 지정
-_prepare_fonts와 _prepare_assets 호출
-_prepare_layout으로 map/slot/control/API panel Rect 계산
-```
+설정한 창 너비·높이 그대로 `RESIZABLE` display를 만들고, 960px 너비와 게임 영역 아래 측정 카드까지 포함하는 가상 `screen` Surface를 만든다. 글꼴·이미지와 모든 콘텐츠 좌표의 Rect를 준비한다.
 
-### `_prepare_fonts()`, `_prepare_assets()`
+### `resize`, `scroll`, `_viewport`, `_clamp_scroll`
 
-설정의 글꼴·이미지 경로를 준비한다. 실패하면 기본 글꼴 또는 fallback 도형을 사용하고 `asset_errors`에 안전한 안내만 저장한다.
+`resize(width, height)`는 최소 640×600을 적용해 display만 바꾸고 스크롤 범위를 다시 제한한다. `_viewport`는 display 폭에 맞는 최대 1배 배율, 가로 중앙 여백과 현재 보이는 콘텐츠 높이를 계산한다. `scroll(amount)`는 콘텐츠 높이를 넘지 않도록 `scroll_y`를 조정한다. 로그인으로 돌아가면 `Renderer`가 스크롤을 맨 위로 복원한다.
 
-### `minimum_height(width) -> int`, `resize(width, height) -> None`
+### `pointer_to_content`, `text_input_rect`, `present`
 
-```text
-minimum_height: 설정 게임 높이에 카드 배치 방식별 공간 추가
-resize: 최소 너비/높이를 적용해 RESIZABLE display 갱신
-_prepare_measurement_layout 호출
-```
+`pointer_to_content`는 마우스 좌표를 가로 중앙 여백·배율·스크롤을 반영한 콘텐츠 좌표로 변환한다. `text_input_rect`는 IME 입력 위치를 반대 방향으로 변환한다. `present(show_scroll)`는 보이는 가상 화면 부분만 display에 그려 중앙 정렬하고, 게임 화면에서 필요한 경우 오른쪽 스크롤 표시를 그린 뒤 한 번 flip한다.
 
-### `_prepare_measurement_layout() -> None`
+### `_prepare_fonts`, `_prepare_assets`
 
-```text
-실제 화면 폭이 900px 미만이면 두 카드 세로 배치, 그 외 나란히 배치
-설정 게임 높이 아래에 load/metrics Rect 생성
-각 카드의 load_refresh/metrics_refresh 조회 버튼 Rect를 controls에 갱신
-```
+설정의 글꼴·이미지 경로를 준비한다. 실패하면 기본 글꼴 또는 fallback 도형을 사용하고 `asset_errors`에 안내만 저장한다.
 
-### `_prepare_layout()`
+### `_prepare_layout`, `_prepare_measurement_layout`
 
-기존 좌표로 `map_rect`, `slots`, `api_panel`, `controls`를 만든다. `controls`의 Pygame Rect는 `HitTargetPort.collidepoint` 계약을 구조적으로 만족한다.
-
-마지막에 `_prepare_measurement_layout()`을 호출해 게임 아래 카드와 조회 버튼을 배치한다.
-
-- 통계 overlay의 `analytics_refresh`, `ingest_refresh`와 `analytics_summary`/`analytics_windows` 탭 hitbox를 고정한다.
-- 시간 창의 `windows_all`/`windows_tumbling`/`windows_sliding`, `windows_refresh`, `windows_previous`/`windows_next` Rect를 준비한다. 페이지 버튼은 설정 창 높이를 기준으로 아래쪽에 배치한다.
-- API 응답 보기의 `api_player`/`api_history`/`api_windows`/`api_analytics` 네 버튼은 sidebar 폭을 네 칸으로 나눈다.
-- 기존 `village-board`/`lobby-banner` 광고용 Rect와 로컬 자산·한글 폰트 준비 경로를 유지한다.
-
-Rect 생성과 자산·폰트 준비는 pygame 초기화 뒤 메인 스레드에서 이뤄진다. 네트워크 작업을 수행하지 않는다.
+게임 맵, sidebar, API 패널, 모든 버튼 hitbox를 가상 화면의 콘텐츠 좌표로 만든다. 로그인 입력 폼은 480px 폭으로 중앙에 둔다. 부하·전달 측정 카드는 게임 영역 아래 y=732에서 나란히 둔다. 크기 변경은 콘텐츠 좌표를 바꾸지 않으며 display viewport만 갱신한다.
 
 ### 출력 primitive
 
-- `text`, `wrapped`: 문자열 출력
-- `button`: control hitbox와 같은 위치에 버튼 출력
-- `draw_slot`: sidebar slot 배경 출력
-- `draw_tile`, `draw_sprite_at_tile`: 자산 또는 fallback 도형 출력
+- `text`: 글꼴·값·색 조합별 렌더 Surface를 최대 512개 캐시한다.
+- `wrapped`: 글꼴·값·폭 조합별 줄 나눔을 최대 256개 캐시한다.
+- `button`: control hitbox와 같은 콘텐츠 좌표에 버튼을 그린다.
+- `draw_slot`: sidebar slot 배경을 그린다.
+- `draw_tile`, `draw_sprite_at_tile`: 자산 또는 fallback 도형을 그린다.
 
-논리 타일 위치는 서버 상태를 변경하지 않으며 화면 좌표로만 변환한다.
+Rect 생성과 자산·글꼴 준비는 pygame 초기화 뒤 메인 스레드에서 이뤄진다. 논리 타일 위치는 서버 상태를 변경하지 않으며 화면 좌표로만 변환한다.

@@ -1,4 +1,5 @@
 """Shared pygame resources, layout, and drawing primitives for the render layer."""
+from collections import OrderedDict
 from typing import Any
 
 import pygame
@@ -27,22 +28,71 @@ class RenderSupport:
 
     def __init__(self, config: ConfigPort) -> None:
         self.config = config
-        self.screen = pygame.display.set_mode(
-            (config.window_width, self.minimum_height(config.window_width)), pygame.RESIZABLE)
+        self.display = pygame.display.set_mode(
+            (config.window_width, config.window_height), pygame.RESIZABLE)
         pygame.display.set_caption('Village Lab · 로컬 접속기')
+        self.content_width = 960
+        self.content_height = 1056
+        self.screen = pygame.Surface((self.content_width, self.content_height))
+        self.scroll_y = 0
         self.asset_errors: list[str] = []
+        self._text_cache: OrderedDict[tuple, pygame.Surface] = OrderedDict()
+        self._wrap_cache: OrderedDict[tuple, tuple[str, ...]] = OrderedDict()
         self._prepare_fonts()
         self._prepare_assets()
         self._prepare_layout()
 
-    def minimum_height(self, width: int) -> int:
-        return self.config.window_height + (660 if width < 900 else 336)
-
     def resize(self, width: int, height: int) -> None:
-        width = max(640, width)
-        self.screen = pygame.display.set_mode(
-            (width, max(height, self.minimum_height(width))), pygame.RESIZABLE)
-        self._prepare_measurement_layout()
+        self.display = pygame.display.set_mode(
+            (max(640, width), max(600, height)), pygame.RESIZABLE)
+        self._clamp_scroll()
+
+    def _viewport(self) -> tuple[float, int, int]:
+        width, height = self.display.get_size()
+        scale = min(1.0, width / self.content_width)
+        return scale, round((width - self.content_width * scale) / 2), round(height / scale)
+
+    def _clamp_scroll(self) -> None:
+        _scale, _left, visible_height = self._viewport()
+        self.scroll_y = max(0, min(self.scroll_y, self.content_height - visible_height))
+
+    def scroll(self, amount: int) -> None:
+        self.scroll_y += amount
+        self._clamp_scroll()
+
+    def pointer_to_content(self, pos: tuple[int, int]) -> tuple[int, int]:
+        scale, left, _height = self._viewport()
+        return round((pos[0] - left) / scale), round(pos[1] / scale) + self.scroll_y
+
+    def text_input_rect(self, name: str) -> pygame.Rect:
+        scale, left, _height = self._viewport()
+        rect = self.controls[name]
+        return pygame.Rect(left + round(rect.x * scale),
+                           round((rect.y - self.scroll_y) * scale),
+                           round(rect.width * scale), round(rect.height * scale))
+
+    def present(self, show_scroll: bool = True) -> None:
+        scale, left, visible_height = self._viewport()
+        self.display.fill(BG)
+        source = pygame.Rect(0, self.scroll_y, self.content_width,
+                             min(visible_height, self.content_height - self.scroll_y))
+        frame = self.screen.subsurface(source)
+        if scale != 1.0:
+            frame = pygame.transform.smoothscale(
+                frame, (round(self.content_width * scale), round(source.height * scale)))
+        self.display.blit(frame, (left, 0))
+        if show_scroll and visible_height < self.content_height:
+            track = pygame.Rect(self.display.get_width() - 8, 8, 4,
+                                 self.display.get_height() - 16)
+            thumb_height = max(24, round(track.height * visible_height / self.content_height))
+            travel = track.height - thumb_height
+            offset = round(travel * self.scroll_y /
+                           (self.content_height - visible_height))
+            pygame.draw.rect(self.display, CARD, track, border_radius=2)
+            pygame.draw.rect(self.display, ACCENT,
+                             pygame.Rect(track.x, track.y + offset, 4, thumb_height),
+                             border_radius=2)
+        pygame.display.flip()
 
     def _prepare_fonts(self) -> None:
         font_path = self.config.font_path
@@ -82,7 +132,7 @@ class RenderSupport:
                 self.asset_errors.append(f'{name} 이미지 로딩 실패')
 
     def _prepare_layout(self) -> None:
-        width = self.config.window_width
+        width = self.content_width
         self.map_rect = pygame.Rect(24, 128, MAP_COLUMNS * TILE_SIZE, MAP_ROWS * TILE_SIZE)
         sidebar_x = self.map_rect.right + 24
         sidebar_width = width - sidebar_x - 24
@@ -91,9 +141,9 @@ class RenderSupport:
             'lobby-banner': pygame.Rect(sidebar_x, 236, sidebar_width, 96),
         }
         self.controls = {
-            'username': pygame.Rect(40, 167, width - 80, 44),
-            'password': pygame.Rect(40, 246, width - 80, 44),
-            'login': pygame.Rect(40, 316, 180, 44),
+            'username': pygame.Rect(240, 167, 480, 44),
+            'password': pygame.Rect(240, 246, 480, 44),
+            'login': pygame.Rect(240, 316, 180, 44),
             'up': pygame.Rect(sidebar_x + 86, 346, 76, 40),
             'left': pygame.Rect(sidebar_x, 394, 76, 40),
             'down': pygame.Rect(sidebar_x + 86, 394, 76, 40),
@@ -129,15 +179,15 @@ class RenderSupport:
             'windows_sliding': pygame.Rect(self.map_rect.x + 208, self.map_rect.y + 148, 86, 28),
             'windows_refresh': pygame.Rect(self.map_rect.x + 468, self.map_rect.y + 148, 122, 28),
             'windows_previous': pygame.Rect(
-                self.map_rect.x + 34, self.config.window_height - 84, 72, 28),
+                self.map_rect.x + 34, 720 - 84, 72, 28),
             'windows_next': pygame.Rect(
-                self.map_rect.x + 518, self.config.window_height - 84, 72, 28),
+                self.map_rect.x + 518, 720 - 84, 72, 28),
         }
         self.api_panel = pygame.Rect(
             sidebar_x,
             548,
             sidebar_width,
-            self.config.window_height - 572,
+            720 - 572,
         )
         api_button_width = (self.api_panel.width - 44) // 4
         self.controls.update({
@@ -169,39 +219,52 @@ class RenderSupport:
         self._prepare_measurement_layout()
 
     def _prepare_measurement_layout(self) -> None:
-        width = self.screen.get_width()
-        top = self.config.window_height + 12
-        if width < 900:
-            self.measurement_cards = {
-                'load': pygame.Rect(24, top, width - 48, 310),
-                'metrics': pygame.Rect(24, top + 322, width - 48, 310),
-            }
-        else:
-            card_width = (width - 60) // 2
-            self.measurement_cards = {
-                'load': pygame.Rect(24, top, card_width, 310),
-                'metrics': pygame.Rect(36 + card_width, top, card_width, 310),
-            }
+        top = 732
+        card_width = (self.content_width - 60) // 2
+        self.measurement_cards = {
+            'load': pygame.Rect(24, top, card_width, 310),
+            'metrics': pygame.Rect(36 + card_width, top, card_width, 310),
+        }
         for kind in ('load', 'metrics'):
             card = self.measurement_cards[kind]
             self.controls[kind + '_refresh'] = pygame.Rect(
                 card.right - 84, card.y + 12, 70, 28)
 
     def text(self, value: Any, pos: Any, color=INK, font=None) -> None:
-        self.screen.blit((font or self.font).render(str(value), True, color), pos)
+        font = font or self.font
+        key = (id(font), str(value), color)
+        rendered = self._text_cache.get(key)
+        if rendered is None:
+            rendered = font.render(key[1], True, color)
+            self._text_cache[key] = rendered
+            if len(self._text_cache) > 512:
+                self._text_cache.popitem(last=False)
+        self.screen.blit(rendered, pos)
 
     def wrapped(self, value: Any, x: int, y: int, width: int,
                 font=None, color=MUTED) -> int:
         font = font or self.small
-        line = ''
-        for char in str(value):
-            if line and font.size(line + char)[0] > width:
-                self.text(line, (x, y), color, font)
-                y += font.get_linesize()
-                line = ''
-            line += char
-        self.text(line, (x, y), color, font)
-        return y + font.get_linesize()
+        key = (id(font), str(value), width)
+        lines = self._wrap_cache.get(key)
+        if lines is None:
+            chunks = []
+            line = ''
+            for char in key[1]:
+                if char == '\n' or (line and font.size(line + char)[0] > width):
+                    chunks.append(line)
+                    line = ''
+                    if char == '\n':
+                        continue
+                line += char
+            chunks.append(line)
+            lines = tuple(chunks)
+            self._wrap_cache[key] = lines
+            if len(self._wrap_cache) > 256:
+                self._wrap_cache.popitem(last=False)
+        for line in lines:
+            self.text(line, (x, y), color, font)
+            y += font.get_linesize()
+        return y
 
     def button(self, name: str, label: str, disabled: bool = False, color=None) -> None:
         rect = self.controls[name]

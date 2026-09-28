@@ -60,8 +60,9 @@ class ClientApp:
         return names
 
     def _handle_mouse(self, event: Any, renderer: RendererPort) -> None:
+        pos = renderer.pointer_to_content(event.pos)
         for name in self._control_names():
-            if not renderer.controls[name].collidepoint(event.pos):
+            if not renderer.controls[name].collidepoint(pos):
                 continue
             if name in ('username', 'password'):
                 self.state.focus = name
@@ -119,6 +120,8 @@ class ClientApp:
             self.controller.begin_shutdown()
         elif event.type == pygame.VIDEORESIZE:
             renderer.resize(event.w, event.h)
+        elif event.type == pygame.MOUSEWHEEL and self.state.authenticated:
+            renderer.scroll(-event.y * 72)
         elif not self.state.closing and not self.state.busy:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_mouse(event, renderer)
@@ -154,7 +157,7 @@ class ClientApp:
                     self.worker.join()  # Already terminated: no network wait on UI thread.
                     break
                 if not self.state.authenticated and not self.state.busy and not self.state.closing:
-                    pygame.key.set_text_input_rect(renderer.controls[self.state.focus])
+                    pygame.key.set_text_input_rect(renderer.text_input_rect(self.state.focus))
                 renderer.draw(self.state, self.analytics_panel, self.history_panel)
                 clock.tick(60)
         finally:

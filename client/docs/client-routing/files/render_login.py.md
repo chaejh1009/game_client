@@ -7,7 +7,7 @@
 ## `draw_login(view: RenderSupport, state: StatePort) -> None`
 
 ```text
-제목과 server origin 출력
+중앙 480px 폼에 제목과 server origin 출력
 username/password 입력 영역과 focus 테두리 출력
 password는 길이만큼 `*`로 표시
 login 버튼과 키 안내 출력

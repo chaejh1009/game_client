@@ -2,7 +2,7 @@
 
 ## 하단 카드 이벤트
 
-인증 상태의 `_control_names`에 `load_refresh`, `metrics_refresh`를 포함한다. `_handle_mouse`는 해당 버튼을 `ControllerPort.request_measurement`로 라우팅한다. `_handle_event`는 `VIDEORESIZE`를 `RendererPort.resize`에 전달해 메인 스레드에서 카드 배치를 갱신한다. 결과는 기존 `_drain_results` queue 경로로 소비한다.
+인증 상태의 `_control_names`에 `load_refresh`, `metrics_refresh`를 포함한다. `_handle_mouse`는 화면 좌표를 콘텐츠 좌표로 변환한 뒤 해당 버튼을 `ControllerPort.request_measurement`로 라우팅한다. `_handle_event`는 `VIDEORESIZE`와 `MOUSEWHEEL`을 렌더러의 크기 변경·스크롤 메서드로 전달한다. 결과는 기존 `_drain_results` queue 경로로 소비한다.
 
 ## 책임과 경계
 
@@ -62,7 +62,7 @@ idle = 행동 통계·ingest·windows 중 진행 중인 요청이 없음
 
 ```text
 현재 허용된 control 이름 순회
-RendererPort.controls[name]과 event.pos 충돌 검사
+RendererPort.pointer_to_content(event.pos)로 좌표 변환 후 controls[name]과 충돌 검사
 입력 필드면 State.focus 변경
 게임/조회/패널 control이면 대응 ClientController 메서드 호출
 analytics_refresh/api_analytics이면 request_analytics 호출
@@ -95,6 +95,7 @@ refresh는 submit('player'), logout/login은 해당 kind submit
 ```text
 QUIT이고 아직 종료 중이 아니면 controller.begin_shutdown()
 VIDEORESIZE이면 RendererPort.resize(event.w, event.h)
+인증 상태의 MOUSEWHEEL이면 RendererPort.scroll(-event.y * 72)
 closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
 미인증 TEXTINPUT이면 printable 문자만 username 150자/password 256자로 제한해 저장
 ```
@@ -119,7 +120,7 @@ Clock 생성, 텍스트 입력 시작
     pygame event를 _handle_event로 처리
     _drain_results()
     closing이고 NetworkPort.is_alive()가 False이면 join 후 반복 종료
-    로그인 입력 가능 상태면 IME 입력 위치 갱신
+    로그인 입력 가능 상태면 RendererPort.text_input_rect로 IME 입력 위치 갱신
     renderer.draw(state, analytics_panel, history_panel)
     clock.tick(60)
 

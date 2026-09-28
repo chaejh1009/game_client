@@ -10,7 +10,7 @@
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
 | `client/main.py` | [`files/main.py.md`](files/main.py.md) | 설정 로드, 객체 조립, 프로세스 진입점 |
-| `client/client_app.py` | [`files/client_app.py.md`](files/client_app.py.md) | pygame 수명주기, 이벤트·결과 루프, 60 FPS 유지 |
+| `client/client_app.py` | [`files/client_app.py.md`](files/client_app.py.md) | pygame 수명주기, 이벤트·결과 루프, 60 FPS 유지와 스크롤 입력 |
 | `client/controller.py` | [`files/controller.py.md`](files/controller.py.md) | 로그인·명령·조회·패널 유스케이스 조정 |
 | `client/ports.py` | [`files/ports.py.md`](files/ports.py.md) | 계층 사이의 추상 호출 계약 |
 | `client/messages.py` | [`files/messages.py.md`](files/messages.py.md) | 계층 사이의 요청·결과 값 계약 |
@@ -81,8 +81,8 @@ network.py
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
 - `panels.py`: 행동 집계·Kafka 수집·시간 창·부하 측정·전달 측정 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다. 시간 창의 종류 필터와 페이지 이동은 받은 배열에만 적용한다.
-- `render.py`: `RendererPort` façade로서 장면을 선택하고 frame을 표시하며 창 크기 변경을 렌더 지원 계층에 전달한다.
-- `render_support.py`: 상태를 모르며 pygame 자산, 배치, hitbox와 공통 출력만 소유한다.
+- `render.py`: `RendererPort` façade로서 장면을 선택하고 frame을 표시하며 창 크기·스크롤·입력 좌표 변환을 렌더 지원 계층에 전달한다.
+- `render_support.py`: 상태를 모르며 pygame 자산, 960px 가상 화면 배치, viewport와 hitbox 변환, 공통 출력을 소유한다.
 - `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
 - `config.json`: 값만 제공하며 호출 관계를 갖지 않는다.
 

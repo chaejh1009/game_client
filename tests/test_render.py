@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 
 
 os.environ.setdefault('PYGAME_HIDE_SUPPORT_PROMPT', '1')
@@ -50,10 +51,42 @@ class RenderContractTests(unittest.TestCase):
             'api_windows', 'api_analytics', 'analytics_summary', 'analytics_windows',
             'windows_all', 'windows_tumbling', 'windows_sliding',
             'windows_refresh', 'windows_previous', 'windows_next',
+            'load_refresh', 'metrics_refresh',
         }
         self.assertEqual(expected, set(self.renderer.controls))
         for target in self.renderer.controls.values():
             self.assertIsInstance(target.collidepoint((target.x, target.y)), bool)
+
+    def test_resized_and_scrolled_hit_targets_match_visible_buttons(self):
+        view = self.renderer._view
+        self.assertEqual((960, 720), view.display.get_size())
+        self.renderer.resize(640, 600)
+        self.renderer.scroll(1000)
+        self.assertEqual(156, view.scroll_y)
+        target = self.renderer.controls['load_refresh'].center
+        screen_pos = (round(target[0] * 2 / 3),
+                      round((target[1] - view.scroll_y) * 2 / 3))
+        self.assertTrue(self.renderer.controls['load_refresh'].collidepoint(
+            self.renderer.pointer_to_content(screen_pos)))
+        self.assertEqual((640, 600), view.display.get_size())
+
+    def test_scrolled_measurement_button_routes_click(self):
+        class Worker:
+            def __init__(self):
+                self.requests = []
+
+            def submit(self, request):
+                self.requests.append(request)
+
+        worker = Worker()
+        state = State(authenticated=True)
+        controller = ClientController(state, self.analytics, self.history, worker)
+        app = ClientApp(None, state, self.analytics, self.history,
+                        worker, controller, None)
+        self.renderer.scroll(300)
+        x, y = self.renderer.controls['metrics_refresh'].center
+        app._handle_mouse(SimpleNamespace(pos=(x, y - 300)), self.renderer)
+        self.assertEqual(['metrics'], [item.kind for item in worker.requests])
 
     def test_login_draw_is_read_only(self):
         state = State(username='student', password='secret')

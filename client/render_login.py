@@ -7,9 +7,9 @@ from render_support import ACCENT, CARD, ERROR, INK, MUTED, RenderSupport
 
 def draw_login(view: RenderSupport, state: StatePort) -> None:
     """Draw the unauthenticated scene without mutating application state."""
-    view.text('VILLAGE LAB', (40, 28), ACCENT, view.small)
-    view.text('마을에 접속하기', (40, 54), font=view.title)
-    view.text(view.config.server_base_url, (40, 100), MUTED, view.small)
+    view.text('VILLAGE LAB', (240, 48), ACCENT, view.small)
+    view.text('마을에 접속하기', (240, 74), font=view.title)
+    view.text(view.config.server_base_url, (240, 120), MUTED, view.small)
     for name, label in (('username', '사용자명'), ('password', '비밀번호')):
         rect = view.controls[name]
         view.text(label, (rect.x, rect.y - 25), MUTED, view.small)
@@ -31,13 +31,13 @@ def draw_login(view: RenderSupport, state: StatePort) -> None:
         )
         view.screen.set_clip(previous)
     view.button('login', '접속 중…' if state.busy else '접속', state.busy or state.closing)
-    view.text('Tab 이동 · Enter 접속', (240, 329), MUTED, view.small)
-    view.wrapped(state.message, 40, 377, view.config.window_width - 80)
+    view.text('Tab 이동 · Enter 접속', (440, 329), MUTED, view.small)
+    view.wrapped(state.message, 240, 377, 480)
     if view.asset_errors:
         view.wrapped(
             ' · '.join(view.asset_errors),
-            40,
+            240,
             410,
-            view.config.window_width - 80,
+            480,
             color=ERROR,
         )

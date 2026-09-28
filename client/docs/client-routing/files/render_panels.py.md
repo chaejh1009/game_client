@@ -2,6 +2,8 @@
 
 ## 하단 측정 카드
 
+두 카드는 960px 가상 콘텐츠의 게임 영역 아래에서 나란히 배치된다. 통계 overlay 높이는 가상 게임 영역의 720px 기준으로 계산한다.
+
 `draw_measurement_cards(view, panel)`은 고정된 두 카드의 Rect에 검증된 부하·전달 측정 snapshot을 그린다. 연결은 개, 처리율은 건/초, RTT는 ms로 표시하며 `_rtt(None)`은 `표본 없음`을 반환한다. `by_room`은 `room_id`/이번 연결 수/성공 응답 수 표로 출력한다. 전달 카드에는 `metrics.generated_at`, 구간 시각, `spark_progress.timestamp`를 별도로 쓰고 `lag_complete=false`에 `일부 위치 미확인`을 붙인다. clip 안에서 기존 카드만 다시 그리며 요청·상태 변경은 수행하지 않는다.
 
 ## 책임과 경계

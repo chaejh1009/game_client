@@ -94,7 +94,7 @@ def draw_analytics_panel(view: RenderSupport,
         view.map_rect.x + 16,
         view.map_rect.y - 8,
         view.map_rect.width - 32,
-        view.config.window_height - view.map_rect.y - 24,
+        720 - view.map_rect.y - 24,
     )
     pygame.draw.rect(view.screen, BG, rect, border_radius=12)
     pygame.draw.rect(view.screen, ACCENT, rect, width=2, border_radius=12)

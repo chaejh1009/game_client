@@ -63,7 +63,7 @@ class ApiClient:
 
     async def get_analytics(self) -> dict:
         return await self._get(
-            '/api/analytics/actions/', self._validator.validate_analytics)
+            '/api/analytics/', self._validator.validate_analytics)
 
     async def get_ingest(self) -> dict:
         return await self._get(

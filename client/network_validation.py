@@ -108,40 +108,35 @@ class ResponseValidator:
         if not available:
             return {'available': False}
 
-        source_topic = data.get('source_topic')
-        source_kind = data.get('source_kind')
-        raw_record_count = data.get('raw_record_count')
-        summary = data.get('summary')
-        for field_name, value in (
-                ('source_topic', source_topic), ('source_kind', source_kind)):
-            if not isinstance(value, str) or not value or len(value) > 160:
-                raise Failure(f'analytics 응답의 {field_name}을 확인하세요.')
-        if type(raw_record_count) is not int or raw_record_count < 0:
-            raise Failure('analytics 응답의 raw_record_count를 확인하세요.')
-        if not isinstance(summary, dict):
-            raise Failure('analytics 응답의 summary를 확인하세요.')
-
-        generated_at = summary.get('generated_at')
-        event_count = summary.get('event_count')
+        schema_version = data.get('schema_version')
+        if type(schema_version) is not int or schema_version < 1:
+            raise Failure('analytics 응답의 schema_version을 확인하세요.')
+        source = data.get('source')
+        if source not in ('raw', 'delta'):
+            raise Failure('analytics 응답의 source를 확인하세요.')
+        record_count = data.get('record_count')
+        if ('record_count' in data
+                and (type(record_count) is not int or record_count < 0)):
+            raise Failure('analytics 응답의 record_count를 확인하세요.')
+        generated_at = data.get('generated_at')
+        event_count = data.get('event_count')
         if not isinstance(generated_at, str) or not generated_at or len(generated_at) > 120:
-            raise Failure('analytics summary의 generated_at을 확인하세요.')
+            raise Failure('analytics 응답의 generated_at을 확인하세요.')
         if type(event_count) is not int or event_count < 0:
-            raise Failure('analytics summary의 event_count를 확인하세요.')
+            raise Failure('analytics 응답의 event_count를 확인하세요.')
         by_action = self._validate_analytics_rows(
-            summary.get('by_action'), 'action_label', 'summary.by_action')
+            data.get('by_action'), 'event_type', 'by_action')
         by_room = self._validate_analytics_rows(
-            summary.get('by_room'), 'room_id', 'summary.by_room')
+            data.get('by_room'), 'room_id', 'by_room')
         return {
             'available': True,
-            'source_topic': source_topic,
-            'source_kind': source_kind,
-            'raw_record_count': raw_record_count,
-            'summary': {
-                'generated_at': generated_at,
-                'event_count': event_count,
-                'by_action': list(by_action),
-                'by_room': list(by_room),
-            },
+            'schema_version': schema_version,
+            'source': source,
+            'generated_at': generated_at,
+            'event_count': event_count,
+            **({'record_count': record_count} if record_count is not None else {}),
+            'by_action': list(by_action),
+            'by_room': list(by_room),
         }
 
     def validate_ingest(self, data: dict) -> dict:

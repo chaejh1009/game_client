@@ -59,11 +59,11 @@ class AnalyticsPanelPort(Protocol):
     visible: bool
     pending: bool
     available: bool | None
-    source_topic: str
-    source_kind: str
+    source: str
+    schema_version: int | None
     generated_at: str
     event_count: int | None
-    raw_record_count: int | None
+    record_count: int | None
     by_action: tuple
     by_room: tuple
     message: str

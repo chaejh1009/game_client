@@ -9,8 +9,7 @@
 ### 필드와 출처
 
 - `visible`, `pending`: `controller.py`의 토글/요청과 `apply`가 관리한다.
-- `available`, `source_topic`, `source_kind`, `raw_record_count`: `Result(kind='analytics').player`에서 온 검증된 최상위 값.
-- `generated_at`, `event_count`, `by_action`, `by_room`: 검증된 `summary`에서 온 snapshot 값.
+- `available`, `source`, `schema_version`, `record_count`, `generated_at`, `event_count`, `by_action`, `by_room`: `Result(kind='analytics').player`에서 온 검증된 snapshot 값. `record_count`는 응답에 없으면 `None`이다.
 - `message`, `error`: 진행·미생성·성공·오류를 구분하는 표시 문자열.
 - `ingest_pending`, `ingest_available`, `ingest_source`, `ingest_generated_at`: `Result(kind='ingest').player`의 Kafka 수집 snapshot 상태.
 - `ingest_record_count`, `ingest_event_count`, `ingest_duplicate_record_count`, `ingest_by_action`: 검증된 수집 레코드·고유 사건·재전달 레코드·`event_type`별 목록.
@@ -90,8 +89,8 @@ change_window_page(delta) -> 0부터 마지막 페이지 사이로 페이지 이
 analytics이면:
     pending 해제
     오류 문자열 제거
-    available=False면 숫자를 0으로 만들지 않고 집계 필드를 비운 뒤 '행동 집계가 아직 없습니다' 설정
-    available=True면 source 정보, raw_record_count와 summary snapshot 저장
+    available=False면 숫자를 0으로 만들지 않고 집계 필드를 비운 뒤 '아직 집계 없음' 설정
+    available=True면 source/schema_version과 최상위 snapshot 값 저장
     True
 analytics_error이면 pending 해제, 오류 메시지 저장, 기존 성공 snapshot은 보존, True
 ingest이면 ingest_pending 해제

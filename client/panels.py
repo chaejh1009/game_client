@@ -10,11 +10,11 @@ class AnalyticsPanelState:
     visible: bool = False
     pending: bool = False
     available: bool | None = None
-    source_topic: str = ''
-    source_kind: str = ''
+    source: str = ''
+    schema_version: int | None = None
     generated_at: str = ''
     event_count: int | None = None
-    raw_record_count: int | None = None
+    record_count: int | None = None
     by_action: tuple = ()
     by_room: tuple = ()
     message: str = ''
@@ -107,11 +107,11 @@ class AnalyticsPanelState:
         self.visible = False
         self.pending = False
         self.available = None
-        self.source_topic = ''
-        self.source_kind = ''
+        self.source = ''
+        self.schema_version = None
         self.generated_at = ''
         self.event_count = None
-        self.raw_record_count = None
+        self.record_count = None
         self.by_action = ()
         self.by_room = ()
         self.message = ''
@@ -143,23 +143,22 @@ class AnalyticsPanelState:
             self.available = data['available']
             self.error = ''
             if not self.available:
-                self.source_topic = ''
-                self.source_kind = ''
+                self.source = ''
+                self.schema_version = None
                 self.generated_at = ''
                 self.event_count = None
-                self.raw_record_count = None
+                self.record_count = None
                 self.by_action = ()
                 self.by_room = ()
-                self.message = '행동 집계가 아직 없습니다'
+                self.message = '아직 집계 없음'
                 return True
-            summary = data['summary']
-            self.source_topic = data['source_topic']
-            self.source_kind = data['source_kind']
-            self.generated_at = summary['generated_at']
-            self.event_count = summary['event_count']
-            self.raw_record_count = data['raw_record_count']
-            self.by_action = tuple(summary['by_action'])
-            self.by_room = tuple(summary['by_room'])
+            self.source = data['source']
+            self.schema_version = data['schema_version']
+            self.generated_at = data['generated_at']
+            self.event_count = data['event_count']
+            self.record_count = data.get('record_count')
+            self.by_action = tuple(data['by_action'])
+            self.by_room = tuple(data['by_room'])
             self.message = '고정 snapshot · 마지막 집계 기준'
             return True
         if result.kind == 'analytics_error':

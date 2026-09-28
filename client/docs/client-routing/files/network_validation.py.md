@@ -78,15 +78,14 @@ room_id label만 int도 허용
 ```text
 available bool 검사
 False이면 {'available': False}
-True이면 source_topic/source_kind가 비어 있지 않은 제한 길이 문자열인지 검사
-raw_record_count가 음이 아닌 정확한 int인지 검사
-summary 객체의 generated_at/event_count 검사
-summary.by_action은 action_label/count로 검증
-summary.by_room은 room_id/count로 검증
+True이면 schema_version 양의 int, source raw/delta 검사
+record_count가 있으면 음이 아닌 정확한 int인지 검사하고 없으면 생략
+generated_at 문자열과 event_count 음이 아닌 정확한 int 검사
+by_action은 event_type/count, by_room은 room_id/count로 검증
 안전한 집계 객체 반환
 ```
 
-추가 최상위 필드, summary 내부 필드, 각 행의 추가 필드는 반환 객체에서 제거한다. 인증 정보나 원문 응답은 보존하지 않는다.
+추가 최상위 필드와 각 행의 추가 필드는 반환 객체에서 제거한다. 인증 정보나 원문 응답은 보존하지 않는다.
 
 ### `validate_ingest(self, data: dict) -> dict`
 

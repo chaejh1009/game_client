@@ -47,7 +47,7 @@ class RenderContractTests(unittest.TestCase):
             'up', 'down', 'left', 'right', 'gather', 'train',
             'refresh', 'logout', 'delivery', 'analytics', 'history_panel',
             'analytics_refresh', 'ingest_refresh', 'api_player', 'api_history',
-            'api_windows', 'analytics_summary', 'analytics_windows',
+            'api_windows', 'api_analytics', 'analytics_summary', 'analytics_windows',
             'windows_all', 'windows_tumbling', 'windows_sliding',
             'windows_refresh', 'windows_previous', 'windows_next',
         }
@@ -81,12 +81,12 @@ class RenderContractTests(unittest.TestCase):
         state.online_count = len(state.players)
         self.analytics.visible = True
         self.analytics.available = True
-        self.analytics.source_topic = 'game.actions.v1'
-        self.analytics.source_kind = 'kafka-summary'
+        self.analytics.source = 'delta'
+        self.analytics.schema_version = 1
         self.analytics.generated_at = '2026-09-18T00:00:00+00:00'
         self.analytics.event_count = 2
-        self.analytics.raw_record_count = 5
-        self.analytics.by_action = ({'action_label': '이동', 'count': 2},)
+        self.analytics.record_count = 5
+        self.analytics.by_action = ({'event_type': '이동', 'count': 2},)
         self.analytics.by_room = ({'room_id': 2, 'count': 2},)
         self.history.visible = True
         self.history.scope = 'current-player'
@@ -112,14 +112,14 @@ class RenderContractTests(unittest.TestCase):
         state = State(authenticated=True, player=PLAYER.copy())
         self.analytics.visible = True
         self.analytics.available = True
-        self.analytics.source_topic = 'game.actions.v1'
-        self.analytics.source_kind = 'kafka-summary'
+        self.analytics.source = 'raw'
+        self.analytics.schema_version = 1
         self.analytics.generated_at = '2026-09-18T00:00:00+00:00'
         self.analytics.event_count = 3
-        self.analytics.raw_record_count = 9
+        self.analytics.record_count = 9
         self.analytics.by_action = (
-            {'action_label': '이동', 'count': 2},
-            {'action_label': '채굴', 'count': 1},
+            {'event_type': '이동', 'count': 2},
+            {'event_type': '채굴', 'count': 1},
         )
         self.analytics.by_room = ({'room_id': 2, 'count': 3},)
         labels = []
@@ -128,8 +128,9 @@ class RenderContractTests(unittest.TestCase):
 
         self.renderer.draw(state, self.analytics, self.history)
 
-        self.assertIn('고유 행동 수', labels)
-        self.assertIn('원본 전달 행 수', labels)
+        self.assertIn('고유 확정 사실 수', labels)
+        self.assertIn('선택한 원천의 행 수', labels)
+        self.assertTrue(any('DB 내보내기 스냅샷' in label for label in labels))
         self.assertIn('고정 snapshot · 마지막 집계 기준', labels)
         self.assertTrue(any('접속자 수·잔액·현재 화면 이동 횟수' in item
                             for item in labels))
@@ -144,7 +145,7 @@ class RenderContractTests(unittest.TestCase):
 
         self.renderer.draw(state, self.analytics, self.history)
 
-        self.assertIn('행동 집계가 아직 없습니다', labels)
+        self.assertIn('아직 집계 없음', labels)
         self.assertNotIn('0', labels)
 
         self.analytics.apply(Result('analytics_error', '집계 조회 실패'))
@@ -158,17 +159,19 @@ class RenderContractTests(unittest.TestCase):
         self.analytics.visible = True
         self.analytics.available = True
         self.analytics.event_count = 210
-        self.analytics.raw_record_count = 230
+        self.analytics.record_count = 230
+        self.analytics.source = 'delta'
+        self.analytics.schema_version = 1
         self.analytics.by_action = (
-            {'action_label': '이동', 'count': 90},
-            {'action_label': '채굴', 'count': 80},
-            {'action_label': '수련', 'count': 40},
+            {'event_type': '이동', 'count': 90},
+            {'event_type': '채굴', 'count': 80},
+            {'event_type': '수련', 'count': 40},
         )
         self.analytics.by_room = tuple(
             {'room_id': f'room-{index}', 'count': index * 10}
             for index in range(1, 7)
         )
-        expected = {f'방 room-{index}' for index in range(1, 5)} | {'외 2개 방'}
+        expected = {f'room-{index}' for index in range(1, 5)} | {'외 2개 그룹'}
         view = self.renderer._view
         original_text = view.text
         rendered_rows = {}

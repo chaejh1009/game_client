@@ -42,7 +42,8 @@ def draw_analytics_panel(view: RenderSupport,
         _draw_windows_panel(view, panel, rect)
         view.screen.set_clip(previous)
         return
-    view.text('행동 집계 snapshot', (x, y), ACCENT, view.font)
+    view.text('확정 사실 집계', (x, y), ACCENT, view.font)
+    view.button('analytics_refresh', '새로 읽기', queries_pending)
     if panel.pending:
         view.text('저장된 집계 결과를 읽는 중…', (x, y + 42), MUTED, view.small)
     elif panel.error and panel.available is not True:
@@ -53,10 +54,8 @@ def draw_analytics_panel(view: RenderSupport,
             rect.width - 36,
             color=ERROR,
         )
-        view.button('analytics_refresh', '다시 조회', queries_pending)
     elif panel.available is False:
-        view.text('행동 집계가 아직 없습니다', (x, y + 42), PENDING, view.font)
-        view.button('analytics_refresh', '조회', queries_pending)
+        view.text('아직 집계 없음', (x, y + 42), PENDING, view.font)
     elif panel.available is not True:
         view.wrapped(
             panel.message or '통계를 읽지 않았습니다.',
@@ -65,61 +64,49 @@ def draw_analytics_panel(view: RenderSupport,
             rect.width - 36,
             color=MUTED,
         )
-        view.button('analytics_refresh', '다시 조회', queries_pending)
     else:
-        view.text(f'topic: {panel.source_topic[:52]}', (x, y + 34), MUTED, view.small)
-        view.text(f'kind: {panel.source_kind[:52]}', (x, y + 54), MUTED, view.small)
-        view.text(f'생성: {panel.generated_at[:40]}', (x, y + 74), MUTED, view.small)
+        source_label = {'raw': 'DB 내보내기 스냅샷',
+                        'delta': 'event_id별 고유 사실 Delta'}[panel.source]
+        view.text(f'원천: {source_label} · schema v{panel.schema_version}',
+                  (x, y + 36), MUTED, view.small)
+        view.text(f'집계 생성 시각: {panel.generated_at[:40]}',
+                  (x, y + 58), MUTED, view.small)
 
-        metric_y = y + 102
-        metric_width = (rect.width - 54) // 2
-        for index, (label, value) in enumerate((
-            ('고유 행동 수', panel.event_count),
-            ('원본 전달 행 수', panel.raw_record_count),
-        )):
+        metric_y = y + 82
+        metrics = [('고유 확정 사실 수', panel.event_count)]
+        if panel.record_count is not None:
+            metrics.append(('선택한 원천의 행 수', panel.record_count))
+        metric_width = (rect.width - 54) // len(metrics)
+        for index, (label, value) in enumerate(metrics):
             metric = pygame.Rect(
                 x + index * (metric_width + 18), metric_y, metric_width, 48)
             pygame.draw.rect(view.screen, CARD, metric, border_radius=7)
             view.text(label, (metric.x + 10, metric.y + 7), MUTED, view.tiny)
             view.text(str(value), (metric.x + 10, metric.y + 23), INK, view.font)
 
-        action_y = metric_y + 68
-        view.text('행동별', (x, action_y - 18), ACCENT, view.small)
-        card_gap = 8
-        action_width = (rect.width - 54) * 3 // 5
-        card_width = (action_width - card_gap * 2) // 3
-        for index in range(3):
-            card = pygame.Rect(
-                x + index * (card_width + card_gap), action_y, card_width, 54)
-            pygame.draw.rect(view.screen, CARD, card, border_radius=7)
-            panel_clip = view.screen.get_clip()
-            view.screen.set_clip(card.inflate(-12, -8))
-            if index < len(panel.by_action):
-                row = panel.by_action[index]
-                view.text(str(row['action_label'])[:18], (card.x + 8, card.y + 8),
-                          MUTED, view.tiny)
-                view.text(str(row['count']), (card.x + 8, card.y + 26), INK, view.font)
-            else:
-                view.text('집계 항목 없음', (card.x + 8, card.y + 18), MUTED, view.tiny)
-            view.screen.set_clip(panel_clip)
-
-        room_x, room_y = x + action_width + 18, action_y
-        view.text('방별 행동 수', (room_x, room_y - 18), ACCENT, view.small)
-        for index, row in enumerate(panel.by_room[:4]):
-            row_y = room_y + index * 18
-            count = str(row['count'])
-            count_x = rect.right - 18 - view.small.size(count)[0]
-            panel_clip = view.screen.get_clip()
-            view.screen.set_clip(pygame.Rect(
-                room_x, row_y, max(0, count_x - room_x - 8), 18))
-            view.text(f"방 {str(row['room_id'])[:22]}", (room_x, row_y), INK, view.small)
-            view.screen.set_clip(panel_clip)
-            view.text(count, (count_x, row_y), INK, view.small)
-        if not panel.by_room:
-            view.text('방별 집계 항목 없음', (room_x, room_y), MUTED, view.small)
-        elif len(panel.by_room) > 4:
-            view.text(f'외 {len(panel.by_room) - 4}개 방', (room_x, room_y + 72),
-                      MUTED, view.tiny)
+        table_y = metric_y + 68
+        table_width = (rect.width - 54) // 2
+        for table_index, (title, rows, label_key) in enumerate((
+            ('event_type별', panel.by_action, 'event_type'),
+            ('room_id별', panel.by_room, 'room_id'),
+        )):
+            table_x = x + table_index * (table_width + 18)
+            view.text(title, (table_x, table_y - 18), ACCENT, view.small)
+            if not rows:
+                view.text('게시할 그룹 없음', (table_x + 4, table_y), MUTED, view.tiny)
+            for index, row in enumerate(rows[:4]):
+                row_y = table_y + index * 18
+                count = str(row['count'])
+                count_x = table_x + table_width - 8 - view.tiny.size(count)[0]
+                row_clip = view.screen.get_clip()
+                view.screen.set_clip(row_clip.clip(pygame.Rect(
+                    table_x + 4, row_y, max(0, count_x - table_x - 12), 18)))
+                view.text(str(row[label_key]), (table_x + 4, row_y), INK, view.tiny)
+                view.screen.set_clip(row_clip)
+                view.text(count, (count_x, row_y), INK, view.tiny)
+            if len(rows) > 4:
+                view.text(f'외 {len(rows) - 4}개 그룹',
+                          (table_x + 4, table_y + 72), MUTED, view.tiny)
 
     ingest = pygame.Rect(x - 8, rect.y + 274, rect.width - 20, rect.bottom - rect.y - 288)
     pygame.draw.rect(view.screen, CARD, ingest, border_radius=9)
@@ -279,6 +266,12 @@ def draw_api_panel(view: RenderSupport, state: StatePort,
         'windows',
         disabled,
         ACCENT if state.api_path == '/api/analytics/windows/' else (84, 113, 122),
+    )
+    view.button(
+        'api_analytics',
+        '집계',
+        disabled,
+        ACCENT if state.api_path == '/api/analytics/' else (84, 113, 122),
     )
     path = state.api_path or '—'
     status = str(state.api_status) if state.api_status is not None else '—'

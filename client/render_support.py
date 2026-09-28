@@ -101,9 +101,9 @@ class RenderSupport:
                 36,
             ),
             'analytics_refresh': pygame.Rect(
-                self.map_rect.x + 58,
-                self.map_rect.y + 132,
-                128,
+                self.map_rect.x + 468,
+                self.map_rect.y + 45,
+                122,
                 32,
             ),
             'ingest_refresh': pygame.Rect(
@@ -129,7 +129,7 @@ class RenderSupport:
             sidebar_width,
             self.config.window_height - 572,
         )
-        api_button_width = (self.api_panel.width - 36) // 3
+        api_button_width = (self.api_panel.width - 44) // 4
         self.controls.update({
             'api_player': pygame.Rect(
                 self.api_panel.x + 10,
@@ -145,6 +145,12 @@ class RenderSupport:
             ),
             'api_windows': pygame.Rect(
                 self.api_panel.x + 26 + api_button_width * 2,
+                self.api_panel.y + 30,
+                api_button_width,
+                26,
+            ),
+            'api_analytics': pygame.Rect(
+                self.api_panel.x + 34 + api_button_width * 3,
                 self.api_panel.y + 30,
                 api_button_width,
                 26,

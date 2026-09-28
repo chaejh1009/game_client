@@ -37,7 +37,8 @@ class ClientApp:
             return ('username', 'password', 'login')
         names = (
             'up', 'down', 'left', 'right', 'gather', 'refresh', 'logout',
-            'delivery', 'train', 'api_player', 'api_history', 'api_windows', 'analytics',
+            'delivery', 'train', 'api_player', 'api_history', 'api_windows',
+            'api_analytics', 'analytics',
             'history_panel',
         )
         panel = self.analytics_panel
@@ -54,8 +55,7 @@ class ClientApp:
                     names += ('windows_next',)
             elif idle:
                 names += ('ingest_refresh',)
-                if panel.available is not True:
-                    names += ('analytics_refresh',)
+                names += ('analytics_refresh',)
         return names
 
     def _handle_mouse(self, event: Any, renderer: RendererPort) -> None:
@@ -74,7 +74,7 @@ class ClientApp:
                 self.controller.request_delivery()
             elif name == 'analytics':
                 self.controller.toggle_analytics()
-            elif name == 'analytics_refresh':
+            elif name in ('analytics_refresh', 'api_analytics'):
                 self.controller.request_analytics()
             elif name == 'ingest_refresh':
                 self.controller.request_ingest()

@@ -30,7 +30,7 @@ _prepare_layout으로 map/slot/control/API panel Rect 계산
 
 - 통계 overlay의 `analytics_refresh`, `ingest_refresh`와 `analytics_summary`/`analytics_windows` 탭 hitbox를 고정한다.
 - 시간 창의 `windows_all`/`windows_tumbling`/`windows_sliding`, `windows_refresh`, `windows_previous`/`windows_next` Rect를 준비한다. 페이지 버튼은 설정 창 높이를 기준으로 아래쪽에 배치한다.
-- API 응답 보기의 `api_player`/`api_history`/`api_windows` 세 버튼은 sidebar 폭을 세 칸으로 나눈다.
+- API 응답 보기의 `api_player`/`api_history`/`api_windows`/`api_analytics` 네 버튼은 sidebar 폭을 네 칸으로 나눈다.
 - 기존 `village-board`/`lobby-banner` 광고용 Rect와 로컬 자산·한글 폰트 준비 경로를 유지한다.
 
 Rect 생성과 자산·폰트 준비는 pygame 초기화 뒤 메인 스레드에서 이뤄진다. 네트워크 작업을 수행하지 않는다.

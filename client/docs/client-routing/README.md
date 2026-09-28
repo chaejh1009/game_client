@@ -58,7 +58,7 @@ network.py
   -> AuthFactoryPort -> AuthPort -> network_auth.py
      -> /accounts/login/, /accounts/logout/
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
-     -> /api/player/, /api/delivery/, /api/analytics/actions/, /api/analytics/ingest/
+     -> /api/player/, /api/delivery/, /api/analytics/, /api/analytics/ingest/
      -> /api/analytics/windows/, /api/history/
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
@@ -107,14 +107,15 @@ network.py
 - 다른 플레이어 broadcast는 자기 명령 완료로 취급하지 않는다.
 - 플레이어 병합은 `player_id`별 `version`이 낮은 상태로 되돌아가지 않는다.
 - 최근 행동 이력 패널과 `/api/history/` 검사 기능을 유지한다.
-- 행동 통계 패널은 사용자가 조회를 요청했을 때 읽은 `/api/analytics/actions/`의 고정 snapshot만 표시한다.
+- 통계 카드는 사용자가 열거나 `새로 읽기`를 누를 때 기존 worker의 인증 ClientSession으로 `GET /api/analytics/`를 한 번 읽는다. `available`, `schema_version`, `generated_at`, `source`, 선택적 `record_count`, `event_count`, `by_action`, `by_room`만 안전하게 투영한다. `raw`는 `DB 내보내기 스냅샷`, `delta`는 `event_id별 고유 사실 Delta`로 표시한다.
+- 카드는 `event_count`를 `고유 확정 사실 수`, `record_count`를 `선택한 원천의 행 수`, `generated_at`을 `집계 생성 시각`으로 표시한다. `record_count`가 없으면 해당 항목을 숨긴다. `available=false`는 `아직 집계 없음`, 빈 그룹 배열은 `게시할 그룹 없음`으로 구분한다. 게임 플레이어의 좌표·coins·version에는 반영하지 않는다.
 - Kafka 수집 통계는 사용자가 `통계 다시 읽기`를 눌렀을 때만 같은 ClientSession worker가 `GET /api/analytics/ingest/`로 이미 게시된 결과를 읽는다. Spark 실행이나 Kafka 연결은 만들지 않는다.
 - 수집 통계 응답은 queue로 메인 스레드에 전달하고 Pygame 메인 스레드가 텍스트·Rect·Surface를 그린다. GUI 루프는 네트워크 대기·`time.sleep()`을 수행하지 않는다.
 - 수집 통계가 없을 때 숫자 0을 합성하지 않으며, 503은 `마지막 수집 통계를 읽을 수 없음`, 302/401은 로그인 안내로 표시한다. 원문 `raw_value`·evidence 파일과 인증 정보는 접속기에 전달하거나 표시하지 않는다.
 - 시간 창 `새로 읽기` 또는 API 응답 보기의 `windows` 버튼을 한 번 누르면 기존 인증 ClientSession worker가 `server_base_url + /api/analytics/windows/`를 GET한다. 요청과 결과는 thread-safe queue를 통과하며, Pygame 폰트·Rect·그리기는 메인 스레드에서 수행한다.
 - 시간 창 표는 `확정 시간 창의 전달 레코드 수(중복 전달 포함 가능)`과 `시작 포함 · 끝 미포함 [window_start, window_end)`를 표시한다. `generated_at`은 집계 생성 시각이며 현재 게임의 `coords`·`coins`·`version`을 바꾸지 않는다.
 - `available=false`는 `아직 창 요약 없음`, 게시 가능한 창 배열이 비면 `확정된 게시 대상 창 없음`으로 구분한다. `all`/`tumbling`/`sliding`과 5행 페이지는 받은 작은 배열을 화면에서 필터할 뿐 Spark 작업이나 서버 설정 변경을 요청하지 않는다.
-- API 응답 보기는 기존 player/history GET에 windows GET을 추가하고 경로·status·안전한 응답 JSON만 표시한다. `allow_redirects=False`, timeout, status/Content-Type 검사를 유지하며 HTML을 JSON으로 읽지 않고 auth·쿠키·CSRF를 표시하지 않는다.
+- API 응답 보기는 player/history/windows/analytics GET의 경로·status·안전한 응답 JSON만 표시한다. `allow_redirects=False`, timeout, status/Content-Type 검사를 유지하며 HTML을 JSON으로 읽지 않고 auth·쿠키·CSRF를 표시하지 않는다.
 - 기존 통계 탭의 game-summary 표, 온라인 상태, `village-board`/`lobby-banner` 광고용 두 Rect, `client/assets` 이미지와 한글 폰트를 유지한다. 접속기별 독립 인증 세션과 로그아웃·worker 종료·Pygame 종료 순서를 유지한다.
 - replay 기능과 replay 호출 경로는 만들지 않는다.
 - 서버·Spark 코드와 기존 API/WS 계약은 변경 대상이 아니다.

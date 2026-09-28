@@ -73,7 +73,7 @@ NetworkPort.submit(Request('analytics'))
 True 반환
 ```
 
-최초 조회와 미생성·오류 뒤 재조회는 이 메서드만 사용한다. `pending` 상태가 프레임 중복 요청과 연속 클릭을 막는다.
+통계 패널을 열 때와 `새로 읽기` 또는 API 응답 보기의 `집계` 버튼을 누를 때 이 메서드를 사용한다. 성공한 snapshot도 다시 읽을 수 있다. `pending` 상태가 프레임 중복 요청과 연속 클릭을 막는다.
 
 ### `request_ingest(self) -> bool`
 
@@ -152,4 +152,4 @@ logged_out 또는 needs_login이면 두 패널 clear()
 ```
 
 패널 결과 적용 순서와 로그인 만료 시 일반 상태 적용을 보존한다.
-`windows`/`windows_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.
+`analytics`/`analytics_error`와 `windows`/`windows_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. API 조회의 `Result(kind='api')`는 별도로 일반 상태에 전달되어 경로·status·검증된 JSON만 API 응답 보기에 표시한다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.

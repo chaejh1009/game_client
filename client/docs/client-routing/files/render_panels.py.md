@@ -10,13 +10,13 @@ API 응답, 확정 행동 통계, Kafka 수집 통계, 확정 시간 창 표, �
 
 ```text
 API 영역 clip 설정
-인증/종료/요청 진행 상태로 player/history/windows 버튼 비활성 여부 결정
-세 버튼과 현재 선택한 경로 강조 출력
+인증/종료/요청 진행 상태로 player/history/windows/analytics 버튼 비활성 여부 결정
+네 버튼과 현재 선택한 경로 강조 출력
 StatePort.api_path, api_status, api_json을 경로·status·JSON으로 출력
 이전 clip 복원
 ```
 
-`windows` 버튼의 경로는 `/api/analytics/windows/`이다. `windows_pending`도 다른 요청과 함께 버튼 비활성 조건에 포함한다. JSON은 검증 계층이 안전하게 투영한 응답만 사용하며 auth·쿠키·CSRF 필드를 만들거나 출력하지 않는다.
+`windows` 버튼의 경로는 `/api/analytics/windows/`, `analytics` 버튼의 경로는 `/api/analytics/`이다. `windows_pending`도 다른 요청과 함께 버튼 비활성 조건에 포함한다. JSON은 검증 계층이 안전하게 투영한 응답만 사용하며 auth·쿠키·CSRF 필드를 만들거나 출력하지 않는다.
 
 ### `draw_analytics_panel(view, panel) -> None`
 
@@ -25,7 +25,7 @@ panel이 없거나 visible=False이면 반환
 overlay Rect와 clip 준비
 기존 통계(summary)/시간 창(windows) 탭 출력 및 선택 강조
 시간 창 탭이면 _draw_windows_panel 호출, 이전 clip 복원 후 반환
-기존 통계 탭이면 기존 행동 집계/game-summary와 Kafka 수집 통계 출력
+summary 탭이면 확정 사실 집계 카드와 Kafka 수집 통계 출력
 이전 clip 복원
 ```
 
@@ -33,10 +33,11 @@ overlay Rect와 clip 준비
 
 - pending은 읽는 중으로 표시한다.
 - 행동 통계·ingest·windows 중 요청이 진행 중이면 기존 통계의 조회와 `통계 다시 읽기` 버튼도 비활성으로 표시한다.
-- `available=False`는 `행동 집계가 아직 없습니다`와 조회 버튼을 표시하며 0건으로 표현하지 않는다.
-- 최초 오류는 오류 안내와 다시 조회 버튼을 표시한다.
-- 성공 snapshot은 `source_topic`, `source_kind`, `generated_at`, `고유 행동 수`, `원본 전달 행 수`를 구분해 표시한다.
-- `by_action`의 앞 세 항목은 왼쪽의 `action_label`·`count` 카드로, `by_room`의 앞 네 항목은 오른쪽의 방별 행동 수 목록으로 표시한다. 네 항목을 넘으면 추가 방 수를 안내하며 목록과 안내는 Kafka 카드 위에 배치한다. 긴 텍스트는 각 카드·방 이름 영역에서 잘라 그리며 없는 카드 값을 0으로 만들지 않는다.
+- `available=False`는 `아직 집계 없음`으로 표시하며 0건으로 표현하지 않는다.
+- 최초 오류는 오류 안내와 `새로 읽기` 버튼을 표시한다.
+- 성공 snapshot은 `source=raw/delta`를 각각 `DB 내보내기 스냅샷`/`event_id별 고유 사실 Delta`로, `generated_at`을 `집계 생성 시각`으로 표시한다. `event_count`는 `고유 확정 사실 수`, 선택적 `record_count`는 `선택한 원천의 행 수`로 구분한다.
+- `by_action`의 앞 네 `event_type`/`count`, `by_room`의 앞 네 `room_id`/`count`를 두 표로 표시한다. 빈 배열은 `게시할 그룹 없음`으로 표시하고, 더 많은 행은 남은 그룹 수를 안내한다. 긴 레이블은 셀 안에서 자르며 값은 일반 텍스트로 그려 평가하지 않는다.
+- `새로 읽기` 버튼은 한 번 누를 때 한 GET만 요청한다.
 - 접속자 수·잔액·현재 화면 이동 횟수와 다른 값이라는 설명과 `고정 snapshot · 마지막 집계 기준` 안내를 표시한다.
 - 기존 snapshot 재조회 실패 시 기존 값과 오류 안내를 함께 표시한다.
 

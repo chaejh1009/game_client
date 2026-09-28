@@ -59,6 +59,32 @@ class IngestValidationTests(unittest.TestCase):
                     validator.validate_ingest({'available': False, 'reason': reason})
 
 
+class AnalyticsValidationTests(unittest.TestCase):
+    def test_absent_record_count_and_empty_groups_remain_distinct(self):
+        safe = ResponseValidator().validate_analytics({
+            'available': True, 'schema_version': 1, 'source': 'raw',
+            'generated_at': '2026-09-28T09:00:00+09:00', 'event_count': 0,
+            'by_action': [], 'by_room': [], 'password': 'must-not-display',
+        })
+        self.assertNotIn('record_count', safe)
+        self.assertEqual(safe['by_action'], [])
+        self.assertEqual(safe['by_room'], [])
+        self.assertNotIn('must-not-display', repr(safe))
+        panel = AnalyticsPanelState()
+        panel.apply(Result('analytics', player=safe))
+        self.assertIsNone(panel.record_count)
+        self.assertTrue(panel.available)
+
+    def test_rejects_invalid_count_or_source(self):
+        payload = {'available': True, 'schema_version': 1, 'source': 'delta',
+                   'generated_at': '2026-09-28T09:00:00+09:00',
+                   'event_count': 1, 'by_action': [], 'by_room': []}
+        for change in ({'record_count': None}, {'record_count': True},
+                       {'source': 'secret'}, {'event_count': -1}):
+            with self.subTest(change=change), self.assertRaises(Failure):
+                ResponseValidator().validate_analytics({**payload, **change})
+
+
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -186,7 +212,7 @@ class ContractTests(unittest.TestCase):
                     'username': 'must-not-display',
                     'csrfToken': 'must-not-display',
                 })
-            if req.path == '/api/analytics/actions/':
+            if req.path == '/api/analytics/':
                 assert req.cookies.get('sessionid')
                 assert req.cookies['csrftoken'] == 'rotated'
                 if cls.mode == 'slow_analytics':
@@ -207,27 +233,23 @@ class ContractTests(unittest.TestCase):
                 if cls.mode == 'analytics_schema':
                     return web.json_response({
                         'available': True,
-                        'source_topic': 'game.actions',
-                        'source_kind': 'kafka',
-                        'raw_record_count': 20,
-                        'summary': {'password': 'must-not-display'},
+                        'source': 'raw',
+                        'schema_version': 1,
+                        'record_count': 20,
+                        'password': 'must-not-display',
                     })
                 return web.json_response({
                     'available': True,
-                    'source_topic': 'game.actions.v1',
-                    'source_kind': 'kafka-summary',
-                    'raw_record_count': 24,
-                    'summary': {
-                        'generated_at': '2026-09-15T03:04:05+00:00',
-                        'event_count': 15,
-                        'by_action': [
-                            {'action_label': '채굴', 'count': 4,
-                             'secret': 'hidden'},
-                            {'action_label': '이동', 'count': 11},
-                        ],
-                        'by_room': [{'room_id': 'room-01', 'count': 15}],
-                        'source': 'must-not-display',
-                    },
+                    'schema_version': 1,
+                    'source': 'delta',
+                    'record_count': 24,
+                    'generated_at': '2026-09-15T03:04:05+00:00',
+                    'event_count': 15,
+                    'by_action': [
+                        {'event_type': '채굴', 'count': 4, 'secret': 'hidden'},
+                        {'event_type': '이동', 'count': 11},
+                    ],
+                    'by_room': [{'room_id': 'room-01', 'count': 15}],
                     'csrfToken': 'must-not-display',
                 })
             if req.path == '/api/analytics/ingest/':
@@ -514,7 +536,7 @@ class ContractTests(unittest.TestCase):
 
     def test_analytics_true_false_allowlist_and_player_is_unchanged(self):
         self.assertEqual(self.login()[0].kind, 'player')
-        self.assertNotIn(('GET', '/api/analytics/actions/'), self.calls)
+        self.assertNotIn(('GET', '/api/analytics/'), self.calls)
         player_state = State(authenticated=True, player=PLAYER.copy())
         original_player = player_state.player.copy()
         panel = AnalyticsPanelState()
@@ -524,20 +546,20 @@ class ContractTests(unittest.TestCase):
         result, results = self.results_until('analytics')
         api_result = next(item for item in results
                           if item.kind == 'api'
-                          and item.api_path == '/api/analytics/actions/')
+                          and item.api_path == '/api/analytics/')
         player_state.apply(api_result)
         self.assertTrue(panel.apply(result))
         self.assertTrue(panel.available)
-        self.assertEqual(panel.source_topic, 'game.actions.v1')
-        self.assertEqual(panel.source_kind, 'kafka-summary')
-        self.assertEqual(panel.raw_record_count, 24)
+        self.assertEqual(panel.source, 'delta')
+        self.assertEqual(panel.schema_version, 1)
+        self.assertEqual(panel.record_count, 24)
         self.assertEqual(panel.event_count, 15)
         self.assertEqual(panel.by_action[0], {
-            'action_label': '채굴', 'count': 4,
+            'event_type': '채굴', 'count': 4,
         })
         self.assertEqual(panel.by_room[0], {'room_id': 'room-01', 'count': 15})
         self.assertEqual(panel.generated_at, '2026-09-15T03:04:05+00:00')
-        self.assertEqual(player_state.api_path, '/api/analytics/actions/')
+        self.assertEqual(player_state.api_path, '/api/analytics/')
         self.assertEqual(player_state.api_status, 200)
         self.assertEqual(player_state.player, original_player)
         self.assertNotIn('must-not-display', repr(results))
@@ -551,11 +573,11 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(panel.apply(result))
         self.assertFalse(panel.available)
         self.assertIsNone(panel.event_count)
-        self.assertIsNone(panel.raw_record_count)
-        self.assertEqual(panel.message, '행동 집계가 아직 없습니다')
+        self.assertIsNone(panel.record_count)
+        self.assertEqual(panel.message, '아직 집계 없음')
         api_result = next(item for item in results
                           if item.kind == 'api'
-                          and item.api_path == '/api/analytics/actions/')
+                          and item.api_path == '/api/analytics/')
         self.assertEqual(api_result.player, {'available': False})
         self.assertNotIn('must-not-display', repr(results))
 
@@ -573,7 +595,7 @@ class ContractTests(unittest.TestCase):
                         self.assertIn('JSON 응답이 아닙니다', result.message)
                         self.assertNotIn('<html>', repr(results))
                     else:
-                        self.assertIn('analytics summary', result.message)
+                        self.assertIn('analytics 응답', result.message)
                         self.assertNotIn('must-not-display', repr(results))
                     self.worker.submit(Request('logout'))
                     self.assertEqual(self.result()[0].kind, 'logged_out')
@@ -591,7 +613,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(command.player['x'], PLAYER['x'] + 1)
         self.assertFalse(any(result.kind == 'command_error' for result in results))
         analytics, _ = self.results_until('analytics')
-        self.assertEqual(analytics.player['summary']['event_count'], 15)
+        self.assertEqual(analytics.player['event_count'], 15)
 
     def test_ingest_stats_allowlist_statuses_and_no_synthetic_zero(self):
         self.assertEqual(self.login()[0].kind, 'player')

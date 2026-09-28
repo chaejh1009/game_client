@@ -38,7 +38,7 @@ apply(result: Result) -> None
 
 ```text
 visible/pending/available
-source_topic/source_kind/generated_at/event_count/raw_record_count
+source/schema_version/generated_at/event_count/record_count
 by_action/by_room/message/error
 ingest_pending/ingest_available/ingest_source/ingest_generated_at
 ingest_record_count/ingest_event_count/ingest_duplicate_record_count

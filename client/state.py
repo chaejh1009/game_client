@@ -19,6 +19,7 @@ class Config:
     house_path: Path
     hero_path: Path
     font_path: Path | None
+    ads_base_url: str = 'http://127.0.0.1:8001'
 
     @classmethod
     def load(cls):
@@ -29,6 +30,12 @@ class Config:
         if (url.scheme not in ('http', 'https') or not url.hostname or url.username
                 or url.password or url.path or url.query or url.fragment):
             raise ValueError('server_base_url에는 경로 없는 HTTP origin을 지정하세요.')
+        ads_origin = data.get('ads_base_url', 'http://127.0.0.1:8001').rstrip('/')
+        ads_url = urlsplit(ads_origin)
+        if (ads_url.scheme not in ('http', 'https') or not ads_url.hostname
+                or ads_url.username or ads_url.password or ads_url.path
+                or ads_url.query or ads_url.fragment):
+            raise ValueError('ads_base_url에는 경로 없는 HTTP origin을 지정하세요.')
         sizes = [data.get('window_width', 960), data.get('window_height', 720),
                  data.get('tile_size', 32)]
         if any(type(v) is not int for v in sizes) or not (
@@ -47,6 +54,7 @@ class Config:
 
         return cls(
             server_base_url=origin,
+            ads_base_url=ads_origin,
             window_width=sizes[0],
             window_height=sizes[1],
             tile_size=sizes[2],

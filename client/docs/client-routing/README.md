@@ -20,6 +20,9 @@
 | `client/network_ws.py` | [`files/network_ws.py.md`](files/network_ws.py.md) | `/ws/play/`, broadcast, `command_id` 대기 |
 | `client/network_validation.py` | [`files/network_validation.py.md`](files/network_validation.py.md) | HTTP/WS 응답 검증과 안전 투영 |
 | `client/network_errors.py` | [`files/network_errors.py.md`](files/network_errors.py.md) | 네트워크 컴포넌트 공통 안전 오류 |
+| `client/ads_panel.py` | [`files/ads_panel.py.md`](files/ads_panel.py.md) | 광고 결정·이미지 상태, 10초 유지·15초 갱신, 늦은 결과 거부 |
+| `client/network_ads.py` | [`files/network_ads.py.md`](files/network_ads.py.md) | 게임 게이트웨이 광고 선택, 무인증·제한된 static 이미지 다운로드 |
+| `client/render_ads.py` | [`files/render_ads.py.md`](files/render_ads.py.md) | 메인 스레드 광고 이미지 변환·출력과 확인 항목 |
 | `client/panels.py` | [`files/panels.py.md`](files/panels.py.md) | 통계·이력 패널 상태 전이 |
 | `client/render.py` | [`files/render.py.md`](files/render.py.md) | `RendererPort` façade와 장면 선택 |
 | `client/render_support.py` | [`files/render_support.py.md`](files/render_support.py.md) | pygame 자산·글꼴·배치·공통 출력 |
@@ -42,16 +45,18 @@ main.py : 구체 구현 생성 및 추상계약 타입으로 조립
            -> StatePort -> state.py
            -> AnalyticsPanelPort/HistoryPanelPort -> panels.py
            -> NetworkPort -> network.py
+        -> AdsPanelPort -> ads_panel.py
         -> NetworkPort -> network.py
         -> RendererFactoryPort -> render.Renderer 생성
         -> RendererPort -> render.py
+           -> render_ads.py : 게시판 옆 광고 Rect와 확인 항목
            -> render_support.py : 자산, 배치, primitive
            -> render_login.py : 로그인 장면
            -> render_game.py : 게임 장면 조정
               -> render_world.py : 맵과 플레이어
               -> render_panels.py : API, 통계, 이력, 하단 측정 카드
 
-controller.py / network.py
+client_app.py / controller.py / network.py / network_ads.py / ads_panel.py
   -> messages.py : Request/Result 값 계약
 
 network.py
@@ -63,17 +68,20 @@ network.py
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
+  -> AdsClientFactoryPort -> AdsClientPort -> network_ads.py
+     -> server_base_url + /api/ads/decision/?slot_id=village-board (게임 인증 session)
+     -> ads_base_url + /static/ads/creatives/... (별도 무인증 session)
   -> Result 반환
 ```
 
 각 계층은 다음 경계까지만 안다.
 
 - `main.py`: 유일한 composition root로서 구체 구현을 생성하지만, 실행 호출은 `ApplicationPort` 계약을 따른다.
-- `client_app.py`: `ConfigPort`, `ControllerPort`, `NetworkPort`, `RendererFactoryPort`, `RendererPort`, 상태·패널 포트만 알고 구체 구현 모듈은 import하지 않는다.
+- `client_app.py`: `AdsPanelPort`, `ConfigPort`, `ControllerPort`, `NetworkPort`, `RendererFactoryPort`, `RendererPort`, 상태·패널 포트만 알고 구체 구현 모듈은 import하지 않는다.
 - `controller.py`: `StatePort`, 두 패널 포트, `NetworkPort`만 호출하며 pygame과 구체 구현은 모른다.
 - `ports.py`: 상위 계층이 사용할 수 있는 속성과 메서드만 선언하고 구현과 I/O를 갖지 않는다.
 - `messages.py`: `Request`, `Result`와 허용 필드 상수만 정의하며 상태나 I/O를 갖지 않는다.
-- `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·검증 구현은 포트로 호출한다.
+- `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·광고·검증 구현은 포트로 호출한다. 게임 HTTP/WS는 하나의 인증 session을 공유하고, 공개 광고용 DummyCookieJar session은 같은 worker loop에서 별도로 닫는다.
 - `network_auth.py`: Django form/CSRF/cookie 계약만 안다.
 - `network_api.py`: 기존 JSON endpoint와 부하·전달 측정 GET의 transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_ws.py`: `/ws/play/`, broadcast, `command_id` waiter만 알고 응답 검증은 `ResponseValidatorPort`에 맡긴다.
@@ -81,7 +89,7 @@ network.py
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
 - `state.py`: 허용된 행동과 결과 병합 규칙은 알지만 큐, HTTP, WS, pygame은 모른다.
 - `panels.py`: 행동 집계·Kafka 수집·시간 창·부하 측정·전달 측정 snapshot·이력의 표시 상태와 관련 `Result.kind`만 알며 서버 호출 방식은 모른다. 시간 창의 종류 필터와 페이지 이동은 받은 배열에만 적용한다.
-- `render.py`: `RendererPort` façade로서 장면을 선택하고 frame을 표시하며 창 크기·스크롤·입력 좌표 변환을 렌더 지원 계층에 전달한다.
+- `render.py`: `RendererPort` façade로서 장면을 선택하고 frame을 표시하며 창 크기·스크롤·입력 좌표 변환을 렌더 지원 계층에 전달한다. 광고가 실제 viewport에 보이는지 확인하고 blit 후 flip이 끝나면 AdsPanelPort.mark_displayed를 호출한다.
 - `render_support.py`: 상태를 모르며 pygame 자산, 960px 가상 화면 배치, viewport와 hitbox 변환, 공통 출력을 소유한다.
 - `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`: 각자 맡은 장면을 포트 상태에서 읽어 출력하며 요청을 만들거나 상태를 변경하지 않는다.
 - `config.json`: 값만 제공하며 호출 관계를 갖지 않는다.
@@ -94,7 +102,7 @@ network.py
 4. `controller.py`는 State, PanelState, NetworkWorker concrete 클래스를 import하지 않는다.
 5. 네트워크 요청과 결과는 `messages.py` 값으로만 경계를 통과한다.
 6. 구현체는 Protocol을 상속할 필요 없이 같은 signature를 제공하는 구조적 부분형 계약을 따른다.
-7. `network.py`는 `network_auth`, `network_api`, `network_ws`, `network_validation` concrete 모듈을 import하지 않는다.
+7. `network.py`는 `network_ads`, `network_auth`, `network_api`, `network_ws`, `network_validation` concrete 모듈을 import하지 않는다.
 
 ## 반드시 유지할 기준선
 
@@ -130,3 +138,15 @@ network.py
 3. 함수 설명은 `signature -> guard/변환 -> 외부 호출 -> 반환/상태 변화` 순서의 의사코드로 적는다.
 4. 다른 계층의 내부 구현은 중복 설명하지 않고 대응 문서로 링크한다.
 5. 서버 계약이 달라 보이는 경우 클라이언트 문서만 임의로 바꾸지 말고 계약 변경 여부를 먼저 확인한다.
+
+## 광고 선택·표시 계약
+
+- 게임 모드에서 게시판 왼쪽의 광고 Rect가 완전히 보일 때만 광고를 선택한다. 최소화/숨김, 스크롤로 비표시, 통계·이력 overlay 표시, 미인증·종료 중에는 새 요청을 멈춘다. 이동 입력과 FPS는 요청 계기가 아니다.
+- `ads_base_url=http://127.0.0.1:8001`은 게임 origin과 별도 설정이다. 타일은 `client/assets`를 계속 사용하며 광고 creative는 서버 static에서만 읽는다.
+- 광고 선택은 게임 origin의 인증 session을 사용하는 GET `/api/ads/decision/?slot_id=village-board`이며 empty=true는 `등록된 광고 없음`, false는 검증된 서버 title·creative를 표시한다. 노출·클릭·광고주 관리 POST는 없다.
+- 선택은 게임 인증 HTTP/WS session을 공유한다. 이미지는 분리된 DummyCookieJar session으로 광고 origin에서 받으며 cookie, CSRF, 매체 키, Authorization을 보내지 않는다. 두 요청 모두 redirect를 따라가지 않는다.
+- creative는 `/static/ads/creatives/` 아래 ASCII 경로만 허용한다. 외부 host/scheme, `..`, 역슬래시, percent encoding, query/fragment, 다른 경로를 거부한다. 이미지의 5초·200·PNG/JPEG/WebP/GIF MIME·2MiB 제한과 Content-Length 없는 청크 상한을 적용한다.
+- queue의 이미지 결과는 요청 세대와 decision_id가 모두 현재 값일 때만 받는다. Surface는 메인 스레드에서 BytesIO→image.load→convert_alpha→blit하고 기존 present의 display.flip 후 표시 완료로 판정한다. 실패는 title 안내와 미표시 상태를 유지한다.
+- 요청 시작 간격은 최소 15초, 결정 유지와 첫 성공 표시 이후 유지 시간은 각각 최소 10초다. 숨겨져 아직 변환되지 않은 bytes는 화면 복귀 후 표시 판정까지 갱신하지 않는다.
+- 확인 항목은 결정 ID·캠페인·슬롯·모의 포인트·이미지 준비·표시 상태뿐이다. bid_units를 모의 포인트로 표시하며 게임 coins를 변경하지 않는다.
+- 종료 시 광고 task도 취소·회수하고 무인증 session을 닫는다. 기존 게임 state/snapshot, command_id, 인증 세션과 로그아웃 순서는 그대로다.

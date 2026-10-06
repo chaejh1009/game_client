@@ -14,6 +14,8 @@ pygame 초기화·종료와 메인 스레드 프레임 루프를 소유한다. �
 - `ports.NetworkPort`
 - `ports.RendererFactoryPort`, `ports.RendererPort`
 - `ports.StatePort`, `ports.AnalyticsPanelPort`, `ports.HistoryPanelPort`
+- `ports.AdsPanelPort`
+- `messages.Request`
 
 `controller`, `network`, `render`, `state`, `panels` concrete 모듈은 import하지 않는다.
 
@@ -30,13 +32,16 @@ pygame 초기화·종료와 메인 스레드 프레임 루프를 소유한다. �
 - `worker: NetworkPort`: worker 수명주기와 결과 조회 계약.
 - `controller: ControllerPort`: 유스케이스 계약.
 - `renderer_factory: RendererFactoryPort`: pygame 초기화 뒤 renderer를 만들기 위한 계약.
+- `ads_panel: AdsPanelPort | None`: 주입된 광고 상태 계약.
+- `_minimized: bool`: 최소화·숨김 이벤트 상태; 초기값 False.
 
 ## 메서드
 
-### `ClientApp.__init__(self, config: ConfigPort, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, worker: NetworkPort, controller: ControllerPort, renderer_factory: RendererFactoryPort) -> None`
+### `ClientApp.__init__(self, config: ConfigPort, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, worker: NetworkPort, controller: ControllerPort, renderer_factory: RendererFactoryPort, ads_panel: AdsPanelPort | None = None) -> None`
 
 ```text
-주입받은 구성 객체와 renderer factory 저장
+주입받은 구성 객체·renderer factory·ads_panel 저장
+_minimized=False 설정
 pygame 초기화나 worker 시작은 아직 하지 않음
 ```
 
@@ -94,6 +99,8 @@ refresh는 submit('player'), logout/login은 해당 kind submit
 
 ```text
 QUIT이고 아직 종료 중이 아니면 controller.begin_shutdown()
+WINDOWMINIMIZED/WINDOWHIDDEN이면 _minimized=True
+WINDOWRESTORED/WINDOWSHOWN이면 _minimized=False
 VIDEORESIZE이면 RendererPort.resize(event.w, event.h)
 인증 상태의 MOUSEWHEEL이면 RendererPort.scroll(-event.y * 72)
 closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
@@ -104,7 +111,10 @@ closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
 
 ```text
 NetworkPort.get_result_nowait() 반복
-각 Result를 controller.apply_result(result)에 전달
+ads_panel이 있고 ads_* 결과이면:
+    인증·비종료 상태에서만 AdsPanelPort.apply(result, time.monotonic()) 호출
+그 외 controller.apply_result(result)에 전달
+    ads_panel이 있고 needs_login 또는 logged_out/fatal이면 AdsPanelPort.clear()
 queue.Empty이면 반환
 ```
 
@@ -121,7 +131,12 @@ Clock 생성, 텍스트 입력 시작
     _drain_results()
     closing이고 NetworkPort.is_alive()가 False이면 join 후 반복 종료
     로그인 입력 가능 상태면 RendererPort.text_input_rect로 IME 입력 위치 갱신
-    renderer.draw(state, analytics_panel, history_panel)
+    ads_panel이 있으면:
+        인증·비종료·비최소화·renderer.ads_visible()·통계/이력 비표시로 visible 계산
+        AdsPanelPort.begin(time.monotonic(), visible)이 허용하면:
+            NetworkPort.submit(Request('ads', request_id=ads_panel.request_id))
+        renderer.draw(state, analytics_panel, history_panel, ads_panel if visible else None)
+    ads_panel이 없으면 renderer.draw(state, analytics_panel, history_panel)
     clock.tick(60)
 
 finally:
@@ -147,7 +162,16 @@ pygame event
 
 NetworkPort.get_result_nowait
   -> ClientApp._drain_results
-     -> ControllerPort.apply_result
+     -> ads_* + AdsPanelPort가 있으면 AdsPanelPort.apply (인증·비종료일 때만)
+     -> 그 외 ControllerPort.apply_result
+
+ClientApp.run
+  -> AdsPanelPort.begin(now, visible)
+     -> 허용 시 Request('ads', request_id) -> NetworkPort.submit
 ```
 
 replay 입력이나 replay 결과 경로는 없다.
+
+## 광고 상태 규칙의 소유자
+
+요청 간격·결정 유지·늦은 결과 거부는 [ads_panel.py](ads_panel.py.md), 실제 HTTP·이미지 제한은 [network_ads.py](network_ads.py.md), 이미지 변환과 출력은 [render_ads.py](render_ads.py.md)를 따른다. ClientApp은 위 포트 호출과 queue 분기만 수행한다.

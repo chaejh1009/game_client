@@ -14,29 +14,41 @@
 - `StatePort`
 - `AnalyticsPanelPort`
 - `HistoryPanelPort`
+- `AdsPanelPort`
 
 ## `Renderer`
 
 ### `Renderer.__init__(self, config: ConfigPort) -> None`
 
 ```text
-RenderSupport(config) 생성
+RenderSupport(config)와 render_ads.AdsRenderer() 생성
 RenderSupport.controls를 Renderer.controls로 공개
 ```
 
 Pygame display/font 초기화는 기존대로 `ClientApp.run`이 먼저 수행한다.
 
-### `Renderer.draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort) -> None`
+### `Renderer.draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, ads_panel: AdsPanelPort | None = None) -> None`
 
 ```text
 배경 지우기
 state.authenticated이면 render_game.draw_game 호출
 아니면 render_login.draw_login 호출
 미인증이면 scroll_y를 0으로 복원
-RenderSupport.present(show_scroll=state.authenticated)로 viewport 표시
+ads_panel이 있고 인증·비종료·통계/이력 비표시·ads_visible()이면:
+    AdsRenderer.draw(view, ads_panel)로 이미지 blit 여부 받기
+RenderSupport.present(show_scroll=state.authenticated)로 viewport 표시 및 flip
+이미지가 blit됐으면 AdsPanelPort.mark_displayed(time.monotonic())
 ```
 
-상태와 패널 객체는 읽기만 하며 변경하지 않는다.
+기존 게임·통계·이력 상태는 읽기만 한다. 광고 준비 상태는 AdsRenderer.draw가, flip 후 표시 완료 상태는 AdsPanelPort.mark_displayed가 갱신한다.
+
+### `Renderer.ads_visible(self) -> bool`
+
+```text
+view.display가 없거나 pygame.display.get_active()가 False이면 False
+RenderSupport._viewport()로 보이는 콘텐츠 높이 계산
+scroll_y <= ad_rect.top이고 ad_rect.bottom <= scroll_y + 높이이면 True, 그 외 False
+```
 
 ### `Renderer.resize(self, width: int, height: int) -> None`
 
@@ -54,6 +66,8 @@ ClientApp -> RendererPort
                 -> render_support.RenderSupport
                 -> render_login.draw_login
                 -> render_game.draw_game
+                -> render_ads.AdsRenderer.draw
+                -> AdsPanelPort.mark_displayed (present/flip 후)
 ```
 
 세부 책임은 다음 문서를 따른다.
@@ -63,3 +77,4 @@ ClientApp -> RendererPort
 - [`render_game.py.md`](render_game.py.md): 인증 후 화면 조정
 - [`render_world.py.md`](render_world.py.md): 맵과 플레이어
 - [`render_panels.py.md`](render_panels.py.md): API·통계·이력 패널과 하단 측정 카드
+- [`render_ads.py.md`](render_ads.py.md): 광고 이미지 변환·출력과 준비 상태 콜백

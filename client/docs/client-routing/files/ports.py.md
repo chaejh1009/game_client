@@ -11,7 +11,7 @@
 ## `ConfigPort`
 
 ```text
-server_base_url
+server_base_url/ads_base_url
 window_width/window_height/tile_size
 assets_dir
 grass_path/path_path/tree_path/house_path/hero_path/font_path
@@ -175,7 +175,9 @@ pointer_to_content(pos) -> tuple[int, int]
 text_input_rect(name) -> Any
 draw(state: StatePort,
      analytics_panel: AnalyticsPanelPort,
-     history_panel: HistoryPanelPort) -> None
+     history_panel: HistoryPanelPort,
+     ads_panel: AdsPanelPort | None = None) -> None
+ads_visible() -> bool
 ```
 
 구현: `render.Renderer`. 세부 출력은 façade 내부에서 책임별 렌더 모듈로 위임하지만 애플리케이션에 공개되는 계약은 이 포트 하나이다.
@@ -227,3 +229,33 @@ run() -> int
 상위 계층 -X-> 하위 concrete 모듈
 ports.py   -X-> pygame/network/state/render 구현
 ```
+
+## 광고 계약
+
+ConfigPort.ads_base_url: 공개 광고 origin.
+
+### `AdsClientFactoryPort`
+
+#### `AdsClientFactoryPort.__call__(self, session: Any, origin: str, result_sink: Callable[[Result], None], *, game_session: Any, game_origin: str) -> AdsClientPort`
+
+이미지용 공개 session/origin과 선택용 게임 인증 session/origin을 받는다.
+
+### `AdsClientPort`
+
+`select(request_id) -> await None`: 광고 선택과 이미지 다운로드 결과를 sink에 전달한다.
+
+### `AdsPanelPort`
+
+decision/image_bytes/image_status/displayed/pending/request_id/message를 노출한다. 구체 구현은 ads_panel.AdsPanelState다.
+
+#### `AdsPanelPort.begin(now, visible) -> bool`
+
+새 요청 가능 여부와 세대를 갱신한다.
+#### `AdsPanelPort.apply(result, now) -> bool`
+
+현재 요청의 광고 결과를 적용한다.
+- `clear()`: 로그아웃 시 상태를 비운다.
+- `image_ready(success)`: 이미지 변환 결과를 받는다.
+- `mark_displayed(now)`: frame 표시 완료를 기록한다.
+
+RendererPort.draw의 네 번째 선택 인자는 ads_panel: AdsPanelPort | None = None이며 ads_visible() -> bool이 추가된다. 기존 세 인자 호출도 유지한다.

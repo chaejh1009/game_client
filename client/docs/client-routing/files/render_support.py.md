@@ -41,3 +41,7 @@ Pygame 창, 글꼴, 이미지, 가상 콘텐츠 화면과 공통 출력 primitiv
 - `draw_tile`, `draw_sprite_at_tile`: 자산 또는 fallback 도형을 그린다.
 
 Rect 생성과 자산·글꼴 준비는 pygame 초기화 뒤 메인 스레드에서 이뤄진다. 논리 타일 위치는 서버 상태를 변경하지 않으며 화면 좌표로만 변환한다.
+
+## 광고 배치
+
+`_prepare_layout()` -> ad_rect = Rect(map_rect.right - 240, 128, 240, 288). 마을 게시판 왼쪽의 맵 위에 광고 카드를 배치한다. 기존 map_rect, 두 slot Rect, controls, 자산 경로는 유지한다. 광고 네트워크나 bytes 디코딩은 담당하지 않는다.

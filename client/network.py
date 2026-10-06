@@ -1,5 +1,6 @@
 """Worker-thread coordinator using injected network component contracts."""
 import asyncio
+from contextlib import AsyncExitStack
 from queue import Empty, Queue
 from threading import Thread
 
@@ -7,7 +8,7 @@ import aiohttp
 
 from messages import Request, Result
 from network_errors import Failure
-from ports import (ApiClientFactoryPort, ApiClientPort, AuthFactoryPort, AuthPort,
+from ports import (AdsClientFactoryPort, ApiClientFactoryPort, ApiClientPort, AuthFactoryPort, AuthPort,
                    GameSocketFactoryPort, GameSocketPort, ResponseValidatorPort)
 
 
@@ -15,8 +16,12 @@ class NetworkWorker:
     def __init__(self, origin: str, auth_factory: AuthFactoryPort,
                  api_factory: ApiClientFactoryPort,
                  game_socket_factory: GameSocketFactoryPort,
-                 validator: ResponseValidatorPort):
+                 validator: ResponseValidatorPort,
+                 ads_origin: str = 'http://127.0.0.1:8001',
+                 ads_factory: AdsClientFactoryPort | None = None):
         self.origin = origin
+        self.ads_origin = ads_origin
+        self._ads_factory = ads_factory
         self.requests = Queue()
         self.results = Queue()
         self.thread = Thread(target=self._run, name='village-network', daemon=False)
@@ -62,12 +67,22 @@ class NetworkWorker:
         jar = aiohttp.CookieJar(unsafe=True)
         timeout = aiohttp.ClientTimeout(total=4, connect=2, sock_read=2)
         async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout,
-                                         trust_env=False) as session:
+                                         trust_env=False) as session, AsyncExitStack() as public_stack:
+            public_session = None
+            if self._ads_factory is not None:
+                public_session = await public_stack.enter_async_context(
+                    aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar(),
+                                          timeout=aiohttp.ClientTimeout(total=5),
+                                          trust_env=False))
             auth = self._auth_factory(session, self.origin)
             api = self._api_factory(
                 session, self.origin, self._validator, self.results.put)
             game_socket = self._game_socket_factory(
                 session, self.origin, self._validator, self.results.put)
+            ads = (self._ads_factory(public_session, self.ads_origin, self.results.put,
+                                     game_session=session, game_origin=self.origin)
+                   if self._ads_factory else None)
+            ads_task = None
             active = None
             delivery_task = None
             analytics_task = None
@@ -77,6 +92,9 @@ class NetworkWorker:
             measurement_tasks = {'load': None, 'metrics': None}
             try:
                 while True:
+                    if ads_task is not None and ads_task.done():
+                        await ads_task
+                        ads_task = None
                     if active is not None and active.done():
                         await active
                         active = None
@@ -106,6 +124,13 @@ class NetworkWorker:
                         continue
                     if request.kind == 'stop':
                         break
+                    if request.kind == 'ads':
+                        if ads is not None and ads_task is None:
+                            ads_task = asyncio.create_task(ads.select(request.request_id))
+                        else:
+                            self.results.put(Result('ads_error', '광고 요청 대기 중',
+                                                    request_id=request.request_id))
+                        continue
                     if request.kind == 'delivery':
                         if delivery_task is None:
                             delivery_task = asyncio.create_task(
@@ -165,7 +190,7 @@ class NetworkWorker:
                         request.password = request.username = ''
             finally:
                 for task in (
-                        active, delivery_task, analytics_task, ingest_task,
+                        ads_task, active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task):
                     if task is not None:
                         task.cancel()
@@ -174,7 +199,7 @@ class NetworkWorker:
                         task.cancel()
                 await asyncio.gather(
                     *(task for task in (
-                        active, delivery_task, analytics_task, ingest_task,
+                        ads_task, active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task, *measurement_tasks.values())
                       if task is not None),
                     return_exceptions=True)

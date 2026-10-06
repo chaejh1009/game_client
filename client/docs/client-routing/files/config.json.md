@@ -33,3 +33,7 @@ main.main()
 
 `assets_dir` 아래 정적 파일은 코드 호출 계층이 아니며, 위 경로 키를 통해서만 런타임 라우팅에 참여한다.
 
+
+## 공개 광고 설정
+
+ads_base_url = http://127.0.0.1:8001. Config.load가 경로 없는 HTTP(S) origin으로 검증하며 main.main이 NetworkWorker.ads_origin으로 전달한다. server_base_url/window_width/window_height/tile_size/assets_dir와 기존 자산 키 값은 유지한다.

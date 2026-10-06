@@ -2,12 +2,14 @@
 import os
 os.environ.setdefault('PYGAME_HIDE_SUPPORT_PROMPT', '1')
 
+import time
 from queue import Empty
 from typing import Any
 
 import pygame
 
-from ports import (AnalyticsPanelPort, ConfigPort, ControllerPort, HistoryPanelPort,
+from messages import Request
+from ports import (AdsPanelPort, AnalyticsPanelPort, ConfigPort, ControllerPort, HistoryPanelPort,
                    NetworkPort, RendererFactoryPort, RendererPort, StatePort)
 
 
@@ -23,7 +25,10 @@ class ClientApp:
     def __init__(self, config: ConfigPort, state: StatePort,
                  analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort,
                  worker: NetworkPort, controller: ControllerPort,
-                 renderer_factory: RendererFactoryPort):
+                 renderer_factory: RendererFactoryPort,
+                 ads_panel: AdsPanelPort | None = None):
+        self.ads_panel = ads_panel
+        self._minimized = False
         self.config = config
         self.state = state
         self.analytics_panel = analytics_panel
@@ -118,6 +123,10 @@ class ClientApp:
     def _handle_event(self, event: Any, renderer: RendererPort) -> None:
         if event.type == pygame.QUIT and not self.state.closing:
             self.controller.begin_shutdown()
+        elif event.type in (pygame.WINDOWMINIMIZED, pygame.WINDOWHIDDEN):
+            self._minimized = True
+        elif event.type in (pygame.WINDOWRESTORED, pygame.WINDOWSHOWN):
+            self._minimized = False
         elif event.type == pygame.VIDEORESIZE:
             renderer.resize(event.w, event.h)
         elif event.type == pygame.MOUSEWHEEL and self.state.authenticated:
@@ -136,7 +145,15 @@ class ClientApp:
     def _drain_results(self) -> None:
         while True:
             try:
-                self.controller.apply_result(self.worker.get_result_nowait())
+                result = self.worker.get_result_nowait()
+                if self.ads_panel is not None and result.kind.startswith('ads_'):
+                    if self.state.authenticated and not self.state.closing:
+                        self.ads_panel.apply(result, time.monotonic())
+                else:
+                    self.controller.apply_result(result)
+                    if (self.ads_panel is not None
+                            and (result.needs_login or result.kind in ('logged_out', 'fatal'))):
+                        self.ads_panel.clear()
             except Empty:
                 return
 
@@ -158,7 +175,16 @@ class ClientApp:
                     break
                 if not self.state.authenticated and not self.state.busy and not self.state.closing:
                     pygame.key.set_text_input_rect(renderer.text_input_rect(self.state.focus))
-                renderer.draw(self.state, self.analytics_panel, self.history_panel)
+                if self.ads_panel is not None:
+                    visible = (self.state.authenticated and not self.state.closing
+                               and not self._minimized and renderer.ads_visible()
+                               and not self.analytics_panel.visible and not self.history_panel.visible)
+                    if self.ads_panel.begin(time.monotonic(), visible):
+                        self.worker.submit(Request('ads', request_id=self.ads_panel.request_id))
+                    renderer.draw(self.state, self.analytics_panel, self.history_panel,
+                                  self.ads_panel if visible else None)
+                else:
+                    renderer.draw(self.state, self.analytics_panel, self.history_panel)
                 clock.tick(60)
         finally:
             self.state.password = ''

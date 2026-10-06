@@ -142,3 +142,7 @@ fatal -> clear_account 후 closing=True
 ```
 
 직접 외부 호출은 `_merge_player`, `clear_account`뿐이며 I/O는 없다.
+
+## 광고 origin 설정
+
+Config.ads_base_url은 기본 http://127.0.0.1:8001인 별도 필드다. Config.load -> 끝 slash 제거 -> HTTP(S) scheme/host 검사, credential/path/query/fragment 거부 -> Config에 저장. 게임 State와 광고 데이터는 섞지 않는다.

@@ -7,6 +7,8 @@
 직접 호출하는 클라이언트 코드:
 
 - `state.Config.load`, `state.State`
+- `ads_panel.AdsPanelState`
+- `network_ads.AdsClient`
 - `panels.AnalyticsPanelState`, `panels.HistoryPanelState`
 - `network.NetworkWorker`
 - `network_auth.DjangoAuth`
@@ -26,14 +28,16 @@
 Config.load()로 client/config.json 검증 및 로드 후 ConfigPort로 보관
 실패하면 설정 안내를 출력하고 1 반환
 
+AdsPanelState 생성 후 AdsPanelPort로 보관
 State 생성 후 StatePort로 보관
 AnalyticsPanelState, HistoryPanelState 생성 후 각 panel port로 보관
-각 네트워크 component class를 factory port로 보관
+게임 인증/API/WS component class를 각 factory port로 보관
 ResponseValidator를 ResponseValidatorPort로 보관
-NetworkWorker(origin, 세 factory, validator) 생성 후 NetworkPort로 보관
+NetworkWorker(server_base_url, 세 게임 factory, validator,
+              ads_origin=ads_base_url, ads_factory=AdsClient) 생성 후 NetworkPort로 보관
 ClientController(state, 두 panel state, worker) 생성 후 ControllerPort로 보관
 Renderer concrete class를 RendererFactoryPort로 보관
-ClientApp(..., renderer_factory) 생성 후 ApplicationPort로 보관
+ClientApp(..., renderer_factory, ads_panel=ads_panel) 생성 후 ApplicationPort로 보관
 ApplicationPort.run() 결과 반환
 ```
 
@@ -43,6 +47,7 @@ pygame은 이 파일에서 import하지 않는다. 구체 구현은 이 composit
 
 - `config`: `Config.load()` 결과.
 - `state`: 메인 스레드 게임 상태.
+- `ads_panel`: 메인 스레드 광고 상태. AdsClient는 별도 지역 factory 변수 없이 worker의 ads_factory 인자로 전달한다.
 - `analytics_panel`, `history_panel`: 선택 패널 상태.
 - `worker`: 유일한 네트워크 worker.
 - `auth_factory`, `api_factory`, `game_socket_factory`: worker event loop 안에서 하위 컴포넌트를 만드는 추상 factory.

@@ -13,6 +13,7 @@ class Request:
     password: str = field(default='', repr=False)
     direction: str = ''
     action: str = 'move'
+    request_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -28,3 +29,7 @@ class Result:
     needs_login: bool = False
     direction: str = ''
     action: str = ''
+    request_id: int = 0
+    decision_id: str = ''
+    ad: dict | None = None
+    image_bytes: bytes = field(default=b'', repr=False)

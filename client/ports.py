@@ -7,6 +7,7 @@ from messages import Request, Result
 
 class ConfigPort(Protocol):
     server_base_url: str
+    ads_base_url: str
     window_width: int
     window_height: int
     tile_size: int
@@ -242,6 +243,36 @@ class GameSocketFactoryPort(Protocol):
                  result_sink: Callable[[Result], None]) -> GameSocketPort: ...
 
 
+class AdsClientPort(Protocol):
+    async def select(self, request_id: int) -> None: ...
+
+
+class AdsClientFactoryPort(Protocol):
+    def __call__(self, session: Any, origin: str,
+                 result_sink: Callable[[Result], None], *,
+                 game_session: Any, game_origin: str) -> AdsClientPort: ...
+
+
+class AdsPanelPort(Protocol):
+    decision: dict
+    image_bytes: bytes
+    image_status: str
+    displayed: bool
+    pending: bool
+    request_id: int
+    message: str
+
+    def begin(self, now: float, visible: bool) -> bool: ...
+
+    def apply(self, result: Result, now: float) -> bool: ...
+
+    def clear(self) -> None: ...
+
+    def image_ready(self, success: bool) -> None: ...
+
+    def mark_displayed(self, now: float) -> None: ...
+
+
 class HitTargetPort(Protocol):
     def collidepoint(self, point: Any) -> bool: ...
 
@@ -258,7 +289,10 @@ class RendererPort(Protocol):
     def text_input_rect(self, name: str) -> Any: ...
 
     def draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort,
-             history_panel: HistoryPanelPort) -> None: ...
+             history_panel: HistoryPanelPort,
+             ads_panel: AdsPanelPort | None = None) -> None: ...
+
+    def ads_visible(self) -> bool: ...
 
 
 class RendererFactoryPort(Protocol):

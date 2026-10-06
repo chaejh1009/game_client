@@ -27,27 +27,29 @@ RenderSupport.controls를 Renderer.controls로 공개
 
 Pygame display/font 초기화는 기존대로 `ClientApp.run`이 먼저 수행한다.
 
-### `Renderer.draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, ads_panel: AdsPanelPort | None = None) -> None`
+### `Renderer.draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, ads_panel: AdsPanelPort | None = None, lobby_ads_panel: AdsPanelPort | None = None) -> None`
 
 ```text
 배경 지우기
 state.authenticated이면 render_game.draw_game 호출
 아니면 render_login.draw_login 호출
 미인증이면 scroll_y를 0으로 복원
-ads_panel이 있고 인증·비종료·통계/이력 비표시·ads_visible()이면:
-    AdsRenderer.draw(view, ads_panel)로 이미지 blit 여부 받기
+비종료이고 인증·통계/이력 비표시·ads_visible()이면 게시판 카드 출력
+비종료이고 미인증·ads_visible('lobby-banner')이면 로그인창 로비 카드 출력
+각 AdsRenderer.draw(view, panel, rect)로 이미지/본문 출력 여부 받기
 RenderSupport.present(show_scroll=state.authenticated)로 viewport 표시 및 flip
-이미지가 blit됐으면 AdsPanelPort.mark_displayed(time.monotonic())
+이미지 또는 본문을 출력한 각 패널의 mark_displayed(time.monotonic()) 호출
 ```
 
 기존 게임·통계·이력 상태는 읽기만 한다. 광고 준비 상태는 AdsRenderer.draw가, flip 후 표시 완료 상태는 AdsPanelPort.mark_displayed가 갱신한다.
 
-### `Renderer.ads_visible(self) -> bool`
+### `Renderer.ads_visible(self, slot_id: str = 'village-board') -> bool`
 
 ```text
 view.display가 없거나 pygame.display.get_active()가 False이면 False
 RenderSupport._viewport()로 보이는 콘텐츠 높이 계산
-scroll_y <= ad_rect.top이고 ad_rect.bottom <= scroll_y + 높이이면 True, 그 외 False
+slot_id에 따라 ad_rect 또는 lobby_ad_rect 선택
+scroll_y <= rect.top이고 rect.bottom <= scroll_y + 높이이면 True, 그 외 False
 ```
 
 ### `Renderer.resize(self, width: int, height: int) -> None`
@@ -78,3 +80,5 @@ ClientApp -> RendererPort
 - [`render_world.py.md`](render_world.py.md): 맵과 플레이어
 - [`render_panels.py.md`](render_panels.py.md): API·통계·이력 패널과 하단 측정 카드
 - [`render_ads.py.md`](render_ads.py.md): 광고 이미지 변환·출력과 준비 상태 콜백
+
+게시판·로비 패널은 별도 AdsRenderer 캐시를 사용한다. 표시한 각 패널은 present 완료 후 mark_displayed를 호출한다.

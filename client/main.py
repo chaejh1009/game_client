@@ -40,7 +40,8 @@ def main():
     renderer_factory: RendererFactoryPort = Renderer
     app: ApplicationPort = ClientApp(
         config, state, analytics_panel, history_panel, worker, controller,
-        renderer_factory, ads_panel=ads_panel)
+        renderer_factory, ads_panel=ads_panel,
+        lobby_ads_panel=AdsPanelState(slot_id='lobby-banner'))
     return app.run()
 
 

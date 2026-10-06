@@ -15,11 +15,13 @@ class Renderer:
     def __init__(self, config: ConfigPort) -> None:
         self._view = RenderSupport(config)
         self._ads = AdsRenderer()
+        self._lobby_ads = AdsRenderer()
         self.controls = self._view.controls
 
     def draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort,
              history_panel: HistoryPanelPort,
-             ads_panel: AdsPanelPort | None = None) -> None:
+             ads_panel: AdsPanelPort | None = None,
+             lobby_ads_panel: AdsPanelPort | None = None) -> None:
         if not state.authenticated:
             self._view.scroll_y = 0
         self._view.screen.fill(BG)
@@ -27,14 +29,20 @@ class Renderer:
             draw_game(self._view, state, analytics_panel, history_panel)
         else:
             draw_login(self._view, state)
-        ad_blitted = False
-        if (ads_panel is not None and state.authenticated and not state.closing
-                and not analytics_panel.visible and not history_panel.visible
-                and self.ads_visible()):
-            ad_blitted = self._ads.draw(self._view, ads_panel)
+        displayed_panels = []
+        if not state.closing:
+            if (state.authenticated and not analytics_panel.visible
+                    and not history_panel.visible and self.ads_visible()
+                    and ads_panel is not None):
+                if self._ads.draw(self._view, ads_panel, self._view.ad_rect):
+                    displayed_panels.append(ads_panel)
+            elif (not state.authenticated and lobby_ads_panel is not None
+                    and self.ads_visible('lobby-banner')):
+                if self._lobby_ads.draw(self._view, lobby_ads_panel, self._view.lobby_ad_rect):
+                    displayed_panels.append(lobby_ads_panel)
         self._view.present(show_scroll=state.authenticated)
-        if ad_blitted:
-            ads_panel.mark_displayed(time.monotonic())
+        for panel in displayed_panels:
+            panel.mark_displayed(time.monotonic())
 
     def resize(self, width: int, height: int) -> None:
         self._view.resize(width, height)
@@ -48,9 +56,10 @@ class Renderer:
     def text_input_rect(self, name: str):
         return self._view.text_input_rect(name)
 
-    def ads_visible(self) -> bool:
+    def ads_visible(self, slot_id: str = 'village-board') -> bool:
         if not self._view.display or not pygame.display.get_active():
             return False
         _scale, _left, height = self._view._viewport()
-        rect = self._view.ad_rect
+        rect = (self._view.lobby_ad_rect if slot_id == 'lobby-banner'
+                else self._view.ad_rect)
         return self._view.scroll_y <= rect.top and rect.bottom <= self._view.scroll_y + height

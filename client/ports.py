@@ -244,7 +244,7 @@ class GameSocketFactoryPort(Protocol):
 
 
 class AdsClientPort(Protocol):
-    async def select(self, request_id: int) -> None: ...
+    async def select(self, request_id: int, slot_id: str = 'village-board') -> None: ...
 
 
 class AdsClientFactoryPort(Protocol):
@@ -254,6 +254,7 @@ class AdsClientFactoryPort(Protocol):
 
 
 class AdsPanelPort(Protocol):
+    slot_id: str
     decision: dict
     image_bytes: bytes
     image_status: str
@@ -290,9 +291,10 @@ class RendererPort(Protocol):
 
     def draw(self, state: StatePort, analytics_panel: AnalyticsPanelPort,
              history_panel: HistoryPanelPort,
-             ads_panel: AdsPanelPort | None = None) -> None: ...
+             ads_panel: AdsPanelPort | None = None,
+             lobby_ads_panel: AdsPanelPort | None = None) -> None: ...
 
-    def ads_visible(self) -> bool: ...
+    def ads_visible(self, slot_id: str = 'village-board') -> bool: ...
 
 
 class RendererFactoryPort(Protocol):

@@ -82,7 +82,7 @@ class NetworkWorker:
             ads = (self._ads_factory(public_session, self.ads_origin, self.results.put,
                                      game_session=session, game_origin=self.origin)
                    if self._ads_factory else None)
-            ads_task = None
+            ads_tasks = {}
             active = None
             delivery_task = None
             analytics_task = None
@@ -92,9 +92,10 @@ class NetworkWorker:
             measurement_tasks = {'load': None, 'metrics': None}
             try:
                 while True:
-                    if ads_task is not None and ads_task.done():
-                        await ads_task
-                        ads_task = None
+                    for slot_id, task in list(ads_tasks.items()):
+                        if task.done():
+                            await task
+                            del ads_tasks[slot_id]
                     if active is not None and active.done():
                         await active
                         active = None
@@ -125,11 +126,12 @@ class NetworkWorker:
                     if request.kind == 'stop':
                         break
                     if request.kind == 'ads':
-                        if ads is not None and ads_task is None:
-                            ads_task = asyncio.create_task(ads.select(request.request_id))
+                        if ads is not None and request.slot_id not in ads_tasks:
+                            ads_tasks[request.slot_id] = asyncio.create_task(
+                                ads.select(request.request_id, request.slot_id))
                         else:
                             self.results.put(Result('ads_error', '광고 요청 대기 중',
-                                                    request_id=request.request_id))
+                                                    request_id=request.request_id, slot_id=request.slot_id))
                         continue
                     if request.kind == 'delivery':
                         if delivery_task is None:
@@ -190,7 +192,7 @@ class NetworkWorker:
                         request.password = request.username = ''
             finally:
                 for task in (
-                        ads_task, active, delivery_task, analytics_task, ingest_task,
+                        *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task):
                     if task is not None:
                         task.cancel()
@@ -199,7 +201,7 @@ class NetworkWorker:
                         task.cancel()
                 await asyncio.gather(
                     *(task for task in (
-                        ads_task, active, delivery_task, analytics_task, ingest_task,
+                        *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task, *measurement_tasks.values())
                       if task is not None),
                     return_exceptions=True)

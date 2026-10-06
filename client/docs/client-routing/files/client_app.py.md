@@ -37,10 +37,10 @@ pygame 초기화·종료와 메인 스레드 프레임 루프를 소유한다. �
 
 ## 메서드
 
-### `ClientApp.__init__(self, config: ConfigPort, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, worker: NetworkPort, controller: ControllerPort, renderer_factory: RendererFactoryPort, ads_panel: AdsPanelPort | None = None) -> None`
+### `ClientApp.__init__(self, config: ConfigPort, state: StatePort, analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort, worker: NetworkPort, controller: ControllerPort, renderer_factory: RendererFactoryPort, ads_panel: AdsPanelPort | None = None, lobby_ads_panel: AdsPanelPort | None = None) -> None`
 
 ```text
-주입받은 구성 객체·renderer factory·ads_panel 저장
+주입받은 구성 객체·renderer factory·ads_panel·lobby_ads_panel 저장
 _minimized=False 설정
 pygame 초기화나 worker 시작은 아직 하지 않음
 ```
@@ -111,10 +111,10 @@ closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
 
 ```text
 NetworkPort.get_result_nowait() 반복
-ads_panel이 있고 ads_* 결과이면:
-    인증·비종료 상태에서만 AdsPanelPort.apply(result, time.monotonic()) 호출
+ads_* 결과이면:
+    비종료이며 현재 장면에 맞는 슬롯만 적용: 인증이면 게시판, 미인증이면 로비 패널의 apply(result, time.monotonic()) 호출
 그 외 controller.apply_result(result)에 전달
-    ads_panel이 있고 needs_login 또는 logged_out/fatal이면 AdsPanelPort.clear()
+    needs_login 또는 logged_out/fatal이면 두 광고 패널 모두 AdsPanelPort.clear()
 queue.Empty이면 반환
 ```
 
@@ -131,12 +131,14 @@ Clock 생성, 텍스트 입력 시작
     _drain_results()
     closing이고 NetworkPort.is_alive()가 False이면 join 후 반복 종료
     로그인 입력 가능 상태면 RendererPort.text_input_rect로 IME 입력 위치 갱신
-    ads_panel이 있으면:
+    광고 패널이 있으면:
         인증·비종료·비최소화·renderer.ads_visible()·통계/이력 비표시로 visible 계산
-        AdsPanelPort.begin(time.monotonic(), visible)이 허용하면:
-            NetworkPort.submit(Request('ads', request_id=ads_panel.request_id))
+        미인증·비종료·비최소화·renderer.ads_visible('lobby-banner')로 lobby_visible 계산
+        각 슬롯의 visible/lobby_visible로 AdsPanelPort.begin(time.monotonic(), ...)이 허용하면:
+            각 패널별 NetworkPort.submit(Request('ads', request_id=panel.request_id, slot_id=panel.slot_id))
         renderer.draw(state, analytics_panel, history_panel, ads_panel if visible else None)
-    ads_panel이 없으면 renderer.draw(state, analytics_panel, history_panel)
+        lobby_ads_panel이 있으면 draw의 다섯 번째 인자로 lobby_ads_panel if lobby_visible else None 전달
+    두 광고 패널 모두 없으면 renderer.draw(state, analytics_panel, history_panel)
     clock.tick(60)
 
 finally:
@@ -162,12 +164,12 @@ pygame event
 
 NetworkPort.get_result_nowait
   -> ClientApp._drain_results
-     -> ads_* + AdsPanelPort가 있으면 AdsPanelPort.apply (인증·비종료일 때만)
+     -> ads_* + AdsPanelPort가 있으면 AdsPanelPort.apply (비종료이며 현재 장면의 슬롯만)
      -> 그 외 ControllerPort.apply_result
 
 ClientApp.run
   -> AdsPanelPort.begin(now, visible)
-     -> 허용 시 Request('ads', request_id) -> NetworkPort.submit
+     -> 허용 시 Request('ads', request_id, slot_id) -> NetworkPort.submit
 ```
 
 replay 입력이나 replay 결과 경로는 없다.
@@ -175,3 +177,5 @@ replay 입력이나 replay 결과 경로는 없다.
 ## 광고 상태 규칙의 소유자
 
 요청 간격·결정 유지·늦은 결과 거부는 [ads_panel.py](ads_panel.py.md), 실제 HTTP·이미지 제한은 [network_ads.py](network_ads.py.md), 이미지 변환과 출력은 [render_ads.py](render_ads.py.md)를 따른다. ClientApp은 위 포트 호출과 queue 분기만 수행한다.
+
+광고 결과는 Result.slot_id에 따라 게시판 또는 로비 패널에만 적용한다. 두 패널의 begin을 각각 호출한다. lobby_ads_panel을 주입한 경우 RendererPort.draw의 다섯 번째 인자로 전달한다. 로그인 전에는 무인증 로비 GET을 요청하고, 로그인 후에는 게시판 광고만 요청한다. 서버가 로그인 전 조회를 지원하지 않으면 안내를 표시한다.

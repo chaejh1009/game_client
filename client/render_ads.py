@@ -12,8 +12,8 @@ class AdsRenderer:
         self._key = None
         self._surface = None
 
-    def draw(self, view, panel: AdsPanelPort) -> bool:
-        rect = view.ad_rect
+    def draw(self, view, panel: AdsPanelPort, rect=None) -> bool:
+        rect = rect if rect is not None else view.ad_rect
         key = (str(panel.decision.get('decision_id', '')),
                id(panel.image_bytes))
         if key != self._key:
@@ -35,7 +35,7 @@ class AdsRenderer:
         pygame.draw.rect(view.screen, CARD, rect, border_radius=10)
         pygame.draw.rect(view.screen, ACCENT, rect, width=1, border_radius=10)
         data = panel.decision
-        view.text('마을 게시판 광고', (rect.x + 12, rect.y + 8), ACCENT, view.small)
+        view.text('로비 광고' if panel.slot_id == 'lobby-banner' else '마을 게시판 광고', (rect.x + 12, rect.y + 8), ACCENT, view.small)
         title = ('등록된 광고 없음' if data.get('empty') else data.get('title', panel.message))
         view.screen.set_clip(pygame.Rect(rect.x + 12, rect.y + 30, rect.width - 24, 40))
         view.wrapped(title, rect.x + 12, rect.y + 30, rect.width - 24, font=view.small)
@@ -44,17 +44,17 @@ class AdsRenderer:
         if blitted:
             view.screen.blit(self._surface, (rect.x + (rect.width - self._surface.get_width()) // 2,
                                             rect.y + 76))
-        else:
+        elif not (data.get('body') and panel.image_status == '준비'):
             view.text(panel.image_status, (rect.x + 12, rect.y + 98), MUTED, view.small)
-        rows = (
-            f"결정 ID: {data.get('decision_id', '—')}",
-            f"캠페인: {data.get('campaign_id', '—')}",
-            f"슬롯: {data.get('slot_id', 'village-board')}",
-            f"모의 포인트: {data.get('bid_units', '—')}",
-            f"이미지 준비: {panel.image_status}",
-            f"표시 상태: {'표시 완료' if panel.displayed and blitted else '미표시'}",
-        )
-        for index, row in enumerate(rows):
-            view.text(row, (rect.x + 12, rect.y + 166 + index * 19), INK, view.small)
+        if not panel.image_bytes and data.get('body') and panel.image_status == '준비':
+            view.screen.set_clip(pygame.Rect(rect.x + 12, rect.y + 76, rect.width - 24, 82))
+            view.wrapped(data['body'], rect.x + 12, rect.y + 76, rect.width - 24,
+                         font=view.small)
+            view.screen.set_clip(rect)
+            blitted = True
+        view.text(f"모의 포인트: {data.get('bid_units', '—')}",
+                  (rect.x + 12, rect.y + 166), INK, view.small)
+        view.wrapped(panel.message, rect.x + 12, rect.y + 187, rect.width - 24,
+                     font=view.small, color=MUTED)
         view.screen.set_clip(previous)
         return blitted

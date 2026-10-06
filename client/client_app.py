@@ -26,8 +26,10 @@ class ClientApp:
                  analytics_panel: AnalyticsPanelPort, history_panel: HistoryPanelPort,
                  worker: NetworkPort, controller: ControllerPort,
                  renderer_factory: RendererFactoryPort,
-                 ads_panel: AdsPanelPort | None = None):
+                 ads_panel: AdsPanelPort | None = None,
+                 lobby_ads_panel: AdsPanelPort | None = None):
         self.ads_panel = ads_panel
+        self.lobby_ads_panel = lobby_ads_panel
         self._minimized = False
         self.config = config
         self.state = state
@@ -146,14 +148,19 @@ class ClientApp:
         while True:
             try:
                 result = self.worker.get_result_nowait()
-                if self.ads_panel is not None and result.kind.startswith('ads_'):
-                    if self.state.authenticated and not self.state.closing:
-                        self.ads_panel.apply(result, time.monotonic())
+                if result.kind.startswith('ads_'):
+                    if (not self.state.closing and
+                            (result.slot_id == 'lobby-banner') != self.state.authenticated):
+                        panel = (self.lobby_ads_panel if result.slot_id == 'lobby-banner'
+                                 else self.ads_panel)
+                        if panel is not None:
+                            panel.apply(result, time.monotonic())
                 else:
                     self.controller.apply_result(result)
-                    if (self.ads_panel is not None
-                            and (result.needs_login or result.kind in ('logged_out', 'fatal'))):
-                        self.ads_panel.clear()
+                    if result.needs_login or result.kind in ('logged_out', 'fatal'):
+                        for panel in (self.ads_panel, self.lobby_ads_panel):
+                            if panel is not None:
+                                panel.clear()
             except Empty:
                 return
 
@@ -175,14 +182,24 @@ class ClientApp:
                     break
                 if not self.state.authenticated and not self.state.busy and not self.state.closing:
                     pygame.key.set_text_input_rect(renderer.text_input_rect(self.state.focus))
-                if self.ads_panel is not None:
-                    visible = (self.state.authenticated and not self.state.closing
-                               and not self._minimized and renderer.ads_visible()
+                if self.ads_panel is not None or self.lobby_ads_panel is not None:
+                    active = not self.state.closing and not self._minimized
+                    visible = (active and self.state.authenticated
+                               and renderer.ads_visible()
                                and not self.analytics_panel.visible and not self.history_panel.visible)
-                    if self.ads_panel.begin(time.monotonic(), visible):
-                        self.worker.submit(Request('ads', request_id=self.ads_panel.request_id))
-                    renderer.draw(self.state, self.analytics_panel, self.history_panel,
-                                  self.ads_panel if visible else None)
+                    lobby_visible = (active and not self.state.authenticated
+                                     and renderer.ads_visible('lobby-banner'))
+                    for panel in (self.ads_panel, self.lobby_ads_panel):
+                        if panel is not None and panel.begin(time.monotonic(),
+                                lobby_visible if panel.slot_id == 'lobby-banner' else visible):
+                            self.worker.submit(Request('ads', request_id=panel.request_id,
+                                                       slot_id=panel.slot_id))
+                    args = (self.state, self.analytics_panel, self.history_panel,
+                            self.ads_panel if visible else None)
+                    if self.lobby_ads_panel is not None:
+                        renderer.draw(*args, self.lobby_ads_panel if lobby_visible else None)
+                    else:
+                        renderer.draw(*args)
                 else:
                     renderer.draw(self.state, self.analytics_panel, self.history_panel)
                 clock.tick(60)

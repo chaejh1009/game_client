@@ -136,7 +136,8 @@ class RenderSupport:
         self.map_rect = pygame.Rect(24, 128, MAP_COLUMNS * TILE_SIZE, MAP_ROWS * TILE_SIZE)
         sidebar_x = self.map_rect.right + 24
         sidebar_width = width - sidebar_x - 24
-        self.ad_rect = pygame.Rect(self.map_rect.right - 240, 128, 240, 288)
+        self.ad_rect = pygame.Rect(self.map_rect.right - 240, 128, 240, 220)
+        self.lobby_ad_rect = pygame.Rect(24, 167, 192, 220)
         self.slots = {
             'village-board': pygame.Rect(sidebar_x, 128, sidebar_width, 96),
             'lobby-banner': pygame.Rect(sidebar_x, 236, sidebar_width, 96),

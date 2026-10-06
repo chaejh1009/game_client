@@ -102,13 +102,13 @@ ApiClientFactoryPort(session, origin, validator, result sink) -> ApiClientPort
 GameSocketFactoryPort(session, origin, validator, result sink) -> GameSocketPort
 ads_factory가 있으면 AdsClientFactoryPort(public_session, ads_origin, result sink, game_session=session, game_origin=origin) -> AdsClientPort
 
-ads_task, active, delivery_task, analytics_task, ingest_task, windows_task, history_task 슬롯과 load/metrics task 두 슬롯 유지
+ads_tasks(slot_id별), active, delivery_task, analytics_task, ingest_task, windows_task, history_task 슬롯과 load/metrics task 두 슬롯 유지
 반복:
     완료 task await 후 슬롯 비우기
     request가 없으면 worker만 0.02초 yield
     stop이면 종료
     ads이면:
-        AdsClientPort가 있고 ads_task가 비면 select(request.request_id)를 task로 시작
+        AdsClientPort가 있고 request.slot_id의 task가 비면 select(request.request_id, request.slot_id)를 task로 시작; 중복 오류에도 slot_id 전달
         그 외 request_id가 포함된 ads_error 결과 반환
         일반 _dispatch/active 슬롯으로 전달하지 않음
     delivery/analytics/ingest/windows/history/load/metrics는 종류별 task 한 개만 허용
@@ -117,7 +117,7 @@ ads_task, active, delivery_task, analytics_task, ingest_task, windows_task, hist
     active 중 command가 오면 command_error 출력
     처리하지 않은 request credential 제거
 finally:
-    ads_task를 포함한 남은 task 취소 및 회수
+    ads_tasks의 모든 슬롯을 포함한 남은 task 취소 및 회수
     GameSocketPort.shutdown()
     AuthPort.clear()
     공개 session의 AsyncExitStack 종료 후 게임 ClientSession context 종료

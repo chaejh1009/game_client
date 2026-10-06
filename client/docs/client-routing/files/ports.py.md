@@ -176,8 +176,8 @@ text_input_rect(name) -> Any
 draw(state: StatePort,
      analytics_panel: AnalyticsPanelPort,
      history_panel: HistoryPanelPort,
-     ads_panel: AdsPanelPort | None = None) -> None
-ads_visible() -> bool
+     ads_panel: AdsPanelPort | None = None, lobby_ads_panel: AdsPanelPort | None = None) -> None
+ads_visible(slot_id='village-board') -> bool
 ```
 
 구현: `render.Renderer`. 세부 출력은 façade 내부에서 책임별 렌더 모듈로 위임하지만 애플리케이션에 공개되는 계약은 이 포트 하나이다.
@@ -242,11 +242,11 @@ ConfigPort.ads_base_url: 공개 광고 origin.
 
 ### `AdsClientPort`
 
-`select(request_id) -> await None`: 광고 선택과 이미지 다운로드 결과를 sink에 전달한다.
+`select(request_id, slot_id='village-board') -> await None`: 광고 선택과 이미지 다운로드 결과를 sink에 전달한다.
 
 ### `AdsPanelPort`
 
-decision/image_bytes/image_status/displayed/pending/request_id/message를 노출한다. 구체 구현은 ads_panel.AdsPanelState다.
+slot_id/decision/image_bytes/image_status/displayed/pending/request_id/message를 노출한다. 구체 구현은 ads_panel.AdsPanelState다.
 
 #### `AdsPanelPort.begin(now, visible) -> bool`
 
@@ -258,4 +258,4 @@ decision/image_bytes/image_status/displayed/pending/request_id/message를 노출
 - `image_ready(success)`: 이미지 변환 결과를 받는다.
 - `mark_displayed(now)`: frame 표시 완료를 기록한다.
 
-RendererPort.draw의 네 번째 선택 인자는 ads_panel: AdsPanelPort | None = None이며 ads_visible() -> bool이 추가된다. 기존 세 인자 호출도 유지한다.
+RendererPort.draw의 네 번째 선택 인자는 ads_panel: AdsPanelPort | None = None이며 다섯 번째 선택 인자는 lobby_ads_panel: AdsPanelPort | None = None이다. ads_visible(slot_id='village-board') -> bool이 추가된다. 기존 세 인자 호출도 유지한다.

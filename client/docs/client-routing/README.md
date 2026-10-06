@@ -69,7 +69,7 @@ network.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
   -> AdsClientFactoryPort -> AdsClientPort -> network_ads.py
-     -> server_base_url + /api/ads/decision/?slot_id=village-board (게임 인증 session)
+     -> server_base_url + /api/ads/decision/?slot_id=village-board 또는 lobby-banner (게시판: 게임 인증 session/405이면 CSRF POST, 로비: 무인증 GET)
      -> ads_base_url + /static/ads/creatives/... (별도 무인증 session)
   -> Result 반환
 ```
@@ -141,10 +141,10 @@ network.py
 
 ## 광고 선택·표시 계약
 
-- 게임 모드에서 게시판 왼쪽의 광고 Rect가 완전히 보일 때만 광고를 선택한다. 최소화/숨김, 스크롤로 비표시, 통계·이력 overlay 표시, 미인증·종료 중에는 새 요청을 멈춘다. 이동 입력과 FPS는 요청 계기가 아니다.
+- 게임 화면의 게시판 슬롯과 로그인창 왼쪽의 로비 슬롯을 각 장면에서만 조회한다. 각 Rect가 완전히 보일 때만 요청하고 최소화/숨김·종료 중에는 멈춘다. 게시판은 통계·이력 overlay나 스크롤로 숨겨져도 멈춘다. 이동 입력과 FPS는 요청 계기가 아니다.
 - `ads_base_url=http://127.0.0.1:8001`은 게임 origin과 별도 설정이다. 타일은 `client/assets`를 계속 사용하며 광고 creative는 서버 static에서만 읽는다.
-- 광고 선택은 게임 origin의 인증 session을 사용하는 GET `/api/ads/decision/?slot_id=village-board`이며 empty=true는 `등록된 광고 없음`, false는 검증된 서버 title·creative를 표시한다. 노출·클릭·광고주 관리 POST는 없다.
-- 선택은 게임 인증 HTTP/WS session을 공유한다. 이미지는 분리된 DummyCookieJar session으로 광고 origin에서 받으며 cookie, CSRF, 매체 키, Authorization을 보내지 않는다. 두 요청 모두 redirect를 따라가지 않는다.
+- 광고 선택은 게임 origin의 GET `/api/ads/decision/?slot_id=...`를 요청한다. 게시판은 인증 session을 사용하며 405이면 CSRF JSON POST로 재요청한다. 로비는 무인증 GET만 사용하고 405/401이면 로그인 전 조회 미지원/불허 안내를 표시한다. empty=true는 `등록된 광고 없음`, false는 검증된 서버 title·creative를 표시한다. 이미지 광고와 body/bid_amount 본문 광고를 지원한다. 노출·클릭·광고주 관리 POST는 없다.
+- 게시판 선택은 게임 인증 HTTP/WS session을 공유하며 로비 선택은 DummyCookieJar session을 사용한다. 이미지는 분리된 DummyCookieJar session으로 광고 origin에서 받으며 cookie, CSRF, 매체 키, Authorization을 보내지 않는다. 두 요청 모두 redirect를 따라가지 않는다.
 - creative는 `/static/ads/creatives/` 아래 ASCII 경로만 허용한다. 외부 host/scheme, `..`, 역슬래시, percent encoding, query/fragment, 다른 경로를 거부한다. 이미지의 5초·200·PNG/JPEG/WebP/GIF MIME·2MiB 제한과 Content-Length 없는 청크 상한을 적용한다.
 - queue의 이미지 결과는 요청 세대와 decision_id가 모두 현재 값일 때만 받는다. Surface는 메인 스레드에서 BytesIO→image.load→convert_alpha→blit하고 기존 present의 display.flip 후 표시 완료로 판정한다. 실패는 title 안내와 미표시 상태를 유지한다.
 - 요청 시작 간격은 최소 15초, 결정 유지와 첫 성공 표시 이후 유지 시간은 각각 최소 10초다. 숨겨져 아직 변환되지 않은 bytes는 화면 복귀 후 표시 판정까지 갱신하지 않는다.

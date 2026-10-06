@@ -54,4 +54,4 @@ controller.py -> StatePort/PanelPort.apply(Result)
 
 ## 공개 광고 값
 
-Request.request_id는 광고 요청 세대 정수(기본 0). Result.request_id, decision_id, ad는 검증된 광고 결과 식별/허용 필드이고 image_bytes는 2MiB 이하 공개 이미지 bytes(기본 b'', repr 제외)다. ads_decision/ads_image/ads_image_error/ads_error가 일반 게임 상태와 별도로 라우팅된다. 인증 값이나 creative_path 원문은 결과에 넣지 않는다.
+Request/Result.slot_id는 광고 슬롯 식별자(기본 village-board)다. Request.request_id는 광고 요청 세대 정수(기본 0). Result.request_id, decision_id, ad는 검증된 광고 결과 식별/허용 필드이고 image_bytes는 2MiB 이하 공개 이미지 bytes(기본 b'', repr 제외)다. ads_decision/ads_text/ads_image/ads_image_error/ads_error가 일반 게임 상태와 별도로 라우팅된다. 인증 값이나 creative_path 원문은 결과에 넣지 않는다.

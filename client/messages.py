@@ -13,6 +13,7 @@ class Request:
     password: str = field(default='', repr=False)
     direction: str = ''
     action: str = 'move'
+    slot_id: str = 'village-board'
     request_id: int = 0
 
 
@@ -29,6 +30,7 @@ class Result:
     needs_login: bool = False
     direction: str = ''
     action: str = ''
+    slot_id: str = 'village-board'
     request_id: int = 0
     decision_id: str = ''
     ad: dict | None = None

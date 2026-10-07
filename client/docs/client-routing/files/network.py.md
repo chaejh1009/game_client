@@ -178,4 +178,4 @@ finally:
 
 ## 광고 경계
 
-게임 인증 HTTP·WS는 같은 CookieJar(unsafe=True) session을 공유한다. 광고 선택에는 게임 session과 게임 origin을, 이미지 다운로드에는 별도 공개 session과 광고 origin을 주입한다. 게임 쿠키는 광고 서버로 전달하지 않는다. 선택·다운로드 제한과 결과 값은 [network_ads.py](network_ads.py.md)가 소유한다.
+게임 인증 HTTP·WS는 같은 CookieJar(unsafe=True) session을 공유한다. 광고 client에는 게임 인증 session/게임 origin과 공개 session/광고 origin을 함께 주입한다. 게시판 선택은 게임 인증 session으로 게임 origin을 호출하고, 로비 선택은 공개 session으로 게임 origin을 호출한다. 이미지 다운로드는 공개 session으로 광고 origin을 호출한다. 게임 쿠키는 광고 서버로 전달하지 않는다. 선택·다운로드 제한과 결과 값은 [network_ads.py](network_ads.py.md)가 소유한다.

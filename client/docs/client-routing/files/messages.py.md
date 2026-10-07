@@ -17,6 +17,7 @@ worker 입력용 dataclass.
 - `username: str`, `password: str`: 로그인에만 사용하며 repr에서 숨긴다. 제출·처리 후 비운다.
 - `direction: str`: 이동 방향, 기본 `''`.
 - `action: str`: 명령 종류, 기본 `'move'`.
+- `slot_id: str`: 광고 슬롯, 기본 `'village-board'`; 로비는 `'lobby-banner'`.
 - `request_id: int`: 광고 요청 세대, 기본 0.
 - `decision_id: str`, `event_type: str`: 사건 대상 결정과 impression/click 종류, 기본 빈 문자열.
 
@@ -34,6 +35,7 @@ worker 출력용 불변 dataclass. 비밀번호, cookie, CSRF token, 원문 임�
 - `api_path`, `status`: API 검사 패널 메타데이터.
 - `needs_login`: 계정 상태를 지워야 하는 오류 여부.
 - `direction`, `action`: 완료/실패한 게임 명령 식별.
+- `slot_id`: 광고 슬롯, 기본 `'village-board'`.
 - `request_id`, `decision_id`: 광고 요청 세대와 결정 식별.
 - `ad`: 검증된 광고 결정 dict 또는 None.
 - `event_type`, `ad_event`, `event_rejected`: 사건 종류, 검증된 event_id/event_type/created 응답, 영구 거절 여부.
@@ -44,7 +46,7 @@ worker 출력용 불변 dataclass. 비밀번호, cookie, CSRF token, 원문 임�
 ## 호출 관계
 
 ```text
-controller.py -> 게임/조회 Request 생성 -> NetworkPort.submit
+controller.py -> 게임/조회 Request 및 게시판 ad_event Request 생성 -> NetworkPort.submit
 client_app.py -> 광고 Request 생성 -> NetworkPort.submit
 network.py -> Request 소비
 network.py -> Result 생성 -> NetworkPort.get_result_nowait

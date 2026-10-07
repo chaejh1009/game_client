@@ -175,6 +175,9 @@ impression은 pending/ok이면 False; 아니면 impression_pending=True
 click은 impression_ok가 아니거나 click_pending/click_ok이면 False; 아니면 click_requested/click_pending=True
 그 외 event_type이면 False
 event_error 제거, 저장 중 메시지 설정
-NetworkPort.submit(Request('ad_event', request_id, slot_id, decision_id, event_type))
+NetworkPort.submit(Request('ad_event', request_id=panel.request_id, slot_id=panel.slot_id,
+                           decision_id=decision_id, event_type=event_type))
 True 반환
 ```
+
+노출 확인 전 클릭은 요청을 제출하거나 `click_requested`를 설정하지 않는다. 허용된 클릭이 일시 실패하면 프레임 루프가 `click_requested`를 보고 재시도를 요청하며, 재시도 시각 검사는 이 메서드가 담당한다.

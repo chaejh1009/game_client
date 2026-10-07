@@ -44,12 +44,13 @@ main.py : 구체 구현 생성 및 추상계약 타입으로 조립
         -> ControllerPort -> controller.py
            -> StatePort -> state.py
            -> AnalyticsPanelPort/HistoryPanelPort -> panels.py
+           -> AdsPanelPort -> ads_panel.py (게시판 사건 요청 상태)
            -> NetworkPort -> network.py
         -> AdsPanelPort -> ads_panel.py
         -> NetworkPort -> network.py
         -> RendererFactoryPort -> render.Renderer 생성
         -> RendererPort -> render.py
-           -> render_ads.py : 게시판 옆 광고 Rect와 확인 항목
+           -> render_ads.py : 게시판·로비별 광고 Rect와 독립 이미지 캐시, 확인 항목
            -> render_support.py : 자산, 배치, primitive
            -> render_login.py : 로그인 장면
            -> render_game.py : 게임 장면 조정
@@ -152,5 +153,5 @@ network.py
 - 확인 항목은 결정 ID·캠페인·슬롯·모의 포인트·이미지 준비·표시 상태뿐이다. bid_units를 모의 포인트로 표시하며 게임 coins를 변경하지 않는다.
 - 종료 시 광고 task도 취소·회수하고 무인증 session을 닫는다. 기존 게임 state/snapshot, command_id, 인증 세션과 로그아웃 순서는 그대로다.
 
-- 게시판 사건 요청은 현재 request_id/decision_id/event_type으로 식별한다. 일시 실패는 최소 2초 뒤 같은 결정을 재전송하며 확인 전에는 광고를 교체하지 않는다. 400/403/404 영구 거절은 같은 사건을 멈추고 2초 뒤 새 광고를 요청한다. 302/401과 CSRF cookie 부재는 기존 재로그인 흐름을 따른다.
+- 게시판 사건 요청은 현재 request_id/decision_id/event_type으로 식별한다. 일시 실패는 최소 2초 뒤 같은 결정을 재전송하며 확인 전에는 광고를 교체하지 않는다. 400/403/404 영구 거절은 같은 사건을 멈추고 2초 뒤 새 광고를 요청한다. 사건 POST의 302/401과 CSRF cookie 부재는 기존 재로그인 흐름을 따른다. 광고 선택의 인증 오류는 광고 패널 안내로만 전달하며 게임 인증 상태를 초기화하지 않는다.
 - 사건 task는 일반 게임 명령과 독립적으로 실행하고 종료 시 취소·회수한다. 로그아웃·인증 만료 시 두 광고 패널을 초기화하여 이전 결정 응답을 무효화한다.

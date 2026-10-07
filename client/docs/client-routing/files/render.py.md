@@ -21,7 +21,8 @@
 ### `Renderer.__init__(self, config: ConfigPort) -> None`
 
 ```text
-RenderSupport(config)와 render_ads.AdsRenderer() 생성
+RenderSupport(config) 생성
+게시판용 _ads와 로비용 _lobby_ads에 render_ads.AdsRenderer()를 각각 생성
 RenderSupport.controls를 Renderer.controls로 공개
 ```
 

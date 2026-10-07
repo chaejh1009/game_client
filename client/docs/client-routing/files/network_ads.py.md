@@ -11,10 +11,12 @@
 
 ## `AdsClient`
 
-- `__init__`: 공개 이미지 session/origin, 게임 인증 session/origin, 결과 sink를 저장한다.
+- `__init__(self, session, origin: str, result_sink, *, game_session, game_origin: str)`: 공개 session/광고 origin과 결과 sink, keyword-only 게임 인증 session/게임 origin을 저장한다. 공개 session은 로비 선택과 이미지 다운로드에 사용한다.
 - `_read(response, limit)`: Content-Length와 누적 청크 모두 상한을 적용한다.
 - `_decision(slot_id)`: 게임 GET `/api/ads/decision/?slot_id=...`을 먼저 요청한다. 로비는 DummyCookieJar session으로 조회하며 405이면 로그인 전 조회 미지원 안내로 끝낸다. 게시판은 405일 때만 현재 게임 cookie jar의 csrftoken으로 JSON POST `{slot_id}`를 재요청한다. X-CSRFToken·Origin·Referer는 게임 origin에만 보낸다. 토큰이 없으면 재로그인 안내로 끝낸다. redirect는 따라가지 않는다.
 - `_parse_decision(response, slot_id)`: 200/JSON/64KiB 응답을 검증한다. 302/401은 게시판 재로그인 또는 로비 로그인 전 조회 불허 안내, 403은 CSRF 인증, 404는 API 설정, 503은 광고 서버 연결·매체 인증 확인 안내, 다른 비200은 HTTP 상태를 안내한다.
 - `select(request_id, slot_id='village-board')`: village-board/lobby-banner만 허용한다. ads_decision 출력 후 empty이면 끝낸다. creative_path 없이 body가 있으면 ads_text를 출력한다. 그 외 공개 경로에서 5초 제한으로 이미지를 GET해 200/PNG·JPEG·WebP·GIF MIME/2MiB/비어 있지 않음을 확인하고 ads_image를 출력한다. 모든 결과에 slot_id/request_id/decision_id를 전달한다. 예상 오류는 ads_error 또는 ads_image_error로 출력하며 원문 통신 오류를 노출하지 않는다.
+
+광고 선택의 재로그인 안내는 `Failure` 메시지로 전달하며 `needs_login`을 설정하지 않는다. `select`는 이를 `ads_error`로 보내므로 게임 인증 상태를 직접 초기화하지 않는다. 광고 사건 POST의 인증 만료 처리는 [network_api.py](network_api.py.md)가 소유한다.
 
 공개 이미지 요청은 쿠키·CSRF·매체 키·Origin·Authorization을 보내지 않고 redirect를 따르지 않는다. session 수명과 task 취소는 [network.py](network.py.md)가 소유한다.

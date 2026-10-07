@@ -27,6 +27,8 @@ client/.venv/bin/python replay_client/main.py
 | 수련 이력 | **수련 이력** | 수련 뒤 데이터는 자동 갱신하지만 패널은 자동으로 열지 않습니다. 버튼을 눌렀을 때 최근 행동의 종류·시각과 transition의 step·reward를 표시합니다. |
 | Kafka 수집 통계 | **통계 다시 읽기** | 사용자가 누를 때만 이미 게시된 `GET /api/analytics/ingest/` snapshot을 읽어 source, 생성 시각, 수집 레코드·고유 사건·재전달 레코드와 event_type별 수를 표시합니다. Spark 실행이나 Kafka 연결은 하지 않습니다. |
 | 같은 방 플레이어 | 자동 갱신 | WebSocket snapshot과 상태 방송을 계속 받아 접속·퇴장·이동을 표시합니다. |
+| 로비 광고 | 로그인 화면에서 자동 표시 | `lobby-banner`를 무인증으로 조회하며 노출·클릭 사건은 전송하지 않습니다. |
+| 게시판 광고 | 로그인 후 자동 표시 및 광고 영역 클릭 | `village-board`를 조회하고 실제 표시 후 노출을 저장합니다. 노출 저장 확인 뒤 클릭을 저장하며 모의 포인트는 게임 coins에 반영하지 않습니다. |
 | 접속 해제 | **로그아웃** | WebSocket을 먼저 닫은 뒤 Django 로그아웃을 요청합니다. |
 
 이동·채굴·수련은 한 명령의 응답을 기다린 뒤 다음 명령을 보내며, 세 종류를 합쳐 0.2초에 한 번만 전송합니다. 동전과 성공 상태는 서버가 같은 `command_id`로 확정한 내 state를 받은 뒤에만 갱신됩니다.
@@ -118,23 +120,41 @@ python client/main.py
 
 `ModuleNotFoundError`가 나오면 위 운영체제별 가상환경을 활성화한 상태에서 `python -m pip install -r requirements.txt`를 다시 실행하세요. 연결 실패가 나오면 Django 서버 실행 여부와 `client/config.json`의 주소를 확인하세요.
 
+## 광고 표시와 노출·클릭 저장
+
+광고 선택·사건 저장 API는 게임 서버가 제공합니다. 공개 광고 이미지는 `client/config.json`의 `ads_base_url`(기본 `http://127.0.0.1:8001`)에서 받으므로 다른 컴퓨터의 광고 서버를 사용하면 이 주소도 변경하세요.
+
+로비와 게시판은 각 장면의 광고 영역이 완전히 보일 때만 조회하며 최소화·숨김·종료 중에는 멈춥니다. 게시판은 통계·이력 패널이나 스크롤에 가려져도 조회를 멈춥니다. 요청 시작 간격은 최소 15초이고, 결정 수신 후와 첫 표시 완료 후 각각 최소 10초 동안 유지합니다. 이미지 광고와 이미지 없는 본문 광고를 지원하며 두 슬롯은 독립 이미지 캐시를 사용합니다.
+
+게시판은 화면 표시 완료 후 `impression`을 전송합니다. 노출 저장 확인 전 클릭은 접수하지 않으며, 확인 후 광고 제목·이미지·본문 영역을 클릭하면 `click`을 전송합니다. 일시 실패는 최소 2초 뒤 같은 결정으로 재시도하며 확인 전에는 광고를 교체하지 않습니다. 400/403/404로 영구 거절되면 같은 사건 전송을 멈추고 2초 뒤 새 광고를 요청합니다. 중복 저장 확인(`created=false`)도 성공으로 처리합니다.
+
+광고 선택의 인증 오류는 광고 패널에 안내합니다. 광고 사건 저장의 302/401 또는 CSRF 쿠키 부재는 재로그인 흐름을 따릅니다. 로그아웃·인증 만료 시 두 광고 패널을 초기화하고 이전 결정의 늦은 응답을 무시합니다. 게임 쿠키·CSRF·Authorization은 광고 이미지 서버로 보내지 않습니다.
+
 ## 파일과 설정
 
-- `client/main.py`: 메인 스레드의 이벤트, 입력, 결과 큐 처리 및 종료.
-- `client/network.py`: 네트워크 worker 하나, asyncio loop 하나, ClientSession 하나. HTTP 로그인·상태 조회·로그아웃과 WebSocket 연결·명령을 처리하고 thread-safe Queue로만 명령/결과 전달.
-- `client/state.py`: 설정, UI 상태, 비밀 정보를 포함하지 않는 결과 메시지.
+- `client/main.py`: 구체 구현과 포트를 조립하는 실행 진입점.
+- `client/client_app.py`: 메인 스레드의 이벤트·입력·결과 큐 처리, 장면별 광고 요청과 종료.
+- `client/controller.py`: 게임·조회·게시판 광고 사건의 요청 조건 검사와 제출.
+- `client/ports.py`, `client/messages.py`: 계층 간 Protocol과 비밀 정보를 포함하지 않는 Request/Result 계약.
+- `client/network.py`: 네트워크 worker 하나와 asyncio loop 하나. 게임 HTTP/WS 인증 session과 로비 조회·이미지 다운로드용 공개 session을 관리하며 thread-safe Queue로 명령/결과를 전달합니다.
+- `client/network_ads.py`, `client/network_api.py`: 광고 선택·공개 이미지 다운로드 및 인증된 광고 사건 POST와 기존 JSON API 조회.
+- `client/ads_panel.py`: 슬롯별 광고 결정·이미지·노출·클릭 상태, 갱신·재시도 및 늦은 결과 거부.
+- `client/state.py`: 설정과 게임 UI 상태.
 - `client/panels.py`: API 응답, 행동 집계·Kafka 수집 통계 snapshot, 수련 이력 패널의 메인 스레드 상태.
-- `client/render.py`: `RendererPort`를 구현하는 Pygame 렌더 façade. 세부 책임은 `render_support.py`, `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`로 분리됩니다.
+- `client/render.py`: `RendererPort`를 구현하는 Pygame 렌더 façade. 세부 책임은 `render_support.py`, `render_login.py`, `render_game.py`, `render_world.py`, `render_panels.py`, `render_ads.py`로 분리됩니다.
 - `client/config.json`: 실제 읽는 설정. 루트 `config.json`은 읽지 않습니다.
 - `client/assets/`: 기본 타일·장식·플레이어 이미지(`grass.png`, `path.png`, `tree.png`, `house.png`, `hero.png`)와 Kenney 원본 패키지. 원본 패키지의 사용 조건은 각 폴더의 `License.txt`를 확인하세요.
 - `tests/test_client.py`: 표준 unittest와 로컬 aiohttp 모의 서버를 사용하는 계약 검증.
 - `tests/test_render.py`: dummy SDL 화면에서 렌더 포트, 상태 불변성, 계층 의존 방향을 검증.
+
+파일별 함수와 호출 관계는 [클라이언트 라우팅 문서](client/docs/client-routing/README.md)를 참고하세요.
 
 주요 `client/config.json` 설정은 다음과 같습니다.
 
 | 키 | 기본값 | 설명 |
 | --- | --- | --- |
 | `server_base_url` | `http://127.0.0.1:8000` | 경로·쿼리·인증 정보가 없는 HTTP(S) origin입니다. |
+| `ads_base_url` | `http://127.0.0.1:8001` | 공개 광고 이미지 서버의 경로 없는 HTTP(S) origin. 광고 선택·사건 저장은 `server_base_url`을 사용합니다. |
 | `window_width`, `window_height` | `960`, `720` | 창 크기입니다. 각각 640~3840, 600~2160 범위의 정수여야 합니다. |
 | `tile_size` | `32` | 8~128 범위의 정수로 검증됩니다. 현재 맵 렌더러는 32px 타일을 사용합니다. |
 | `assets_dir` | `assets` | 기본 자산 폴더 설정입니다. 실제 파일은 아래의 개별 `*_path` 값을 사용합니다. |
@@ -150,19 +170,23 @@ python client/main.py
 | `GET /accounts/login/` | Django 로그인 HTML을 반환하고 CSRF 쿠키 설정 |
 | `POST /accounts/login/` | 폼 데이터 `{username,password}`, `X-CSRFToken`, `Origin`, `Referer` 전달. 성공 시 30x 리다이렉트와 세션 쿠키 설정 |
 | `GET /api/player/` | 같은 세션의 자기 정보. 최상위 `player_id`, `room_id`는 정수 또는 80자 이하 문자열, `x`, `y`, `coins`, `version`은 정수 |
-| `GET /api/analytics/actions/` | 사용자가 조회 버튼을 누를 때만 읽는 고정 행동 집계. `available=true`이면 `source_topic`, `source_kind`, `raw_record_count`와 `summary.generated_at`, `summary.event_count`, `summary.by_action`, `summary.by_room`을 반환 |
+| `GET /api/analytics/` | 사용자가 조회할 때만 읽는 행동 집계. `available=true`이면 `schema_version`, `source`, `generated_at`, `event_count`, `by_action`, `by_room`과 선택적 `record_count`를 반환 |
 | `GET /api/analytics/ingest/` | 사용자가 **통계 다시 읽기**를 누를 때만 읽는 이미 게시된 수집 snapshot. `available=true`이면 `source`, `generated_at`, `record_count`, `event_count`, `duplicate_record_count`, `by_action[event_type,count]`를 반환하며 `false`는 준비 안내에 사용 |
 | `GET /api/history/` | 로그인한 플레이어의 최근 이벤트 20개. 이벤트의 `event_type`, `event_time`, `payload.transition.step`, `payload.transition.reward`를 수련 이력 패널에 표시하며 transition이 없는 과거 행도 허용합니다. |
 | `WS /ws/play/` | 로그인 세션으로 연결하고, 최초 player state와 `{type:"snapshot",players:[...]}` 및 방의 player state 방송을 계속 받습니다. 이동은 `{type:"move",direction,command_id}`, 채굴은 `{type:"gather",command_id}`, 수련은 `{type:"train",command_id}`만 전송합니다. 자기 player의 응답 중 일치하는 `command_id`만 대기 명령을 완료하고, 다른 player state는 대기 상태에 영향을 주지 않습니다. 한 명령 응답 대기 및 모든 입력을 합쳐 0.2초 간격 적용 |
 | `POST /accounts/logout/` | WS가 있으면 먼저 종료하고 회전된 최신 CSRF 쿠키와 Origin을 사용. 200/204 또는 30x 리다이렉트 |
+| `GET /api/ads/decision/?slot_id=...` | 게시판은 게임 인증 session, 로비는 무인증 session으로 조회. `empty=true` 또는 `ad=null`은 광고 없음. 선택 결과는 식별자·제목·슬롯·모의 포인트와 `creative_path` 또는 `body`를 사용 |
+| `POST /api/ads/decision/` | 게시판 GET이 405일 때만 CSRF JSON `{slot_id}`로 재요청. 로비는 POST로 재시도하지 않음 |
+| `GET <ads_base_url>/static/ads/creatives/...` | 무인증 이미지 다운로드. 200 및 PNG/JPEG/WebP/GIF, 2MiB 이하, 전체 5초 제한. 외부 URL·경로 순회·쿼리·fragment 거부 |
+| `POST /api/ads/events/` | 게임 인증 session과 CSRF로 `{decision_id,event_type}` 전송. 종류는 `impression`/`click`. 200 JSON의 `event_id=decision_id+':'+event_type`, 일치하는 `event_type`, bool `created`를 검증 |
 
-실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않고 전체 4초, 연결/읽기 2초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.
+실제 서버가 player 객체를 다른 키 아래 감싸거나 좌표를 실수로 반환한다면 계약을 먼저 맞춰야 합니다. 모든 HTTP 요청은 리다이렉트를 따르지 않습니다. 게임 인증 session은 전체 4초, 연결/읽기 2초 제한을 적용하고 공개 광고 session은 전체 5초 제한을 적용합니다. 302/401은 재로그인 안내, 403은 CSRF/Origin 설정 안내를 표시합니다. 광고 오류의 처리 범위는 위 광고 절을 따릅니다. HTML과 잘못된 JSON은 상태 데이터로 사용하지 않습니다.
 
 교실 로컬 IP 쿠키를 받기 위해 worker loop 안에서 `CookieJar(unsafe=True)`를 만듭니다. 쿠키와 토큰은 프로세스별 메모리에만 존재합니다. 인증 요청/응답, 비밀번호, 쿠키, CSRF 토큰/헤더를 설정·파일·로그·API 패널에 저장하거나 출력하지 않습니다. 비밀번호는 제출 즉시 입력 필드에서 비우고 요청 완료/취소 시 참조를 제거합니다. Python 문자열의 물리적 메모리 덮어쓰기를 보장하는 구현은 아닙니다.
 
 API 패널은 `GET /api/player/`와 `GET /api/history/` 중 선택한 응답 및 사용자가 요청한 analytics 응답의 경로, status, 허용된 필드로 제한한 JSON만 표시합니다. 임의 경로 입력/요청 기능은 없으며 서버의 추가 필드와 오류 본문, `raw_value`·evidence는 표시하지 않습니다. 행동 집계·Kafka 수집 통계·수련 이력 조회는 같은 worker의 같은 `ClientSession`을 사용하고 결과만 queue로 메인 스레드에 전달합니다. GUI 프레임에서는 네트워크를 기다리거나 `time.sleep()`하지 않으며, 수집 통계 버튼은 게시된 결과 GET만 호출합니다. 302/401은 로그인 안내, 503은 `마지막 수집 통계를 읽을 수 없음`으로 표시하고 오류·미생성 상태를 0건으로 만들지 않습니다. 로그아웃 완료/실패 시 로컬 계정과 쿠키를 모두 비우고, 서버 로그아웃을 확인하지 못한 경우 이를 안내합니다.
 
-창 종료 시 진행 중 작업을 취소하고 WS 및 ClientSession을 닫은 후 worker가 종료됩니다. 종료 화면에서도 이벤트 처리를 계속하며 UI에서 네트워크 대기나 `time.sleep()`을 하지 않습니다. 창 종료 자체가 서버 로그아웃 POST를 의미하지는 않습니다.
+창 종료 시 광고 선택·사건 task를 포함한 진행 중 작업을 취소·회수하고 WS 및 인증·공개 ClientSession을 닫은 후 worker가 종료됩니다. 종료 화면에서도 이벤트 처리를 계속하며 UI에서 네트워크 대기나 `time.sleep()`을 하지 않습니다. 창 종료 자체가 서버 로그아웃 POST를 의미하지는 않습니다.
 
 ## 검증
 
@@ -170,6 +194,6 @@ API 패널은 `GET /api/player/`와 `GET /api/history/` 중 선택한 응답 및
 python -m unittest discover -s tests -v
 ```
 
-모의 서버에서 로그인 순서, 로컬 쿠키 유지, WebSocket snapshot·다른 플레이어 방송·명령 응답 매칭, 공유 명령 제한, 로그인 포커스 이동 차단, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 실제 Django 서버 통합은 별도 확인이 필요합니다.
+모의 서버에서 로그인 순서, 로컬 쿠키 유지, WebSocket snapshot·다른 플레이어 방송·명령 응답 매칭, 공유 명령 제한, 로그인 포커스 이동 차단, 회전 토큰, 로그아웃, 서로 다른 worker의 쿠키 격리, 302/401/403, HTML/잘못된 JSON/스키마 거부, timeout 및 진행 중 요청 취소를 검증합니다. 광고 테스트는 슬롯·인증 경계, 표시·저장 순서, 재시도·중복 확인과 종료 시 취소도 검증합니다. 실제 Django·광고 서버 통합은 별도 확인이 필요합니다.
 
 구현 참고: [aiohttp ClientSession / CookieJar](https://docs.aiohttp.org/en/stable/client_reference.html), [pygame-ce 텍스트 입력](https://pyga.me/docs/ref/key.html).

@@ -218,6 +218,8 @@ class ApiClientPort(Protocol):
 
     async def get_history(self) -> dict: ...
 
+    async def post_ad_event(self, decision_id: str, event_type: str) -> dict: ...
+
 
 class ApiClientFactoryPort(Protocol):
     def __call__(self, session: Any, origin: str,
@@ -262,6 +264,14 @@ class AdsPanelPort(Protocol):
     pending: bool
     request_id: int
     message: str
+    impression_pending: bool
+    impression_ok: bool
+    click_pending: bool
+    click_ok: bool
+    click_requested: bool
+    event_retry_at: float
+    event_error: str
+    event_rejected: bool
 
     def begin(self, now: float, visible: bool) -> bool: ...
 
@@ -272,6 +282,8 @@ class AdsPanelPort(Protocol):
     def image_ready(self, success: bool) -> None: ...
 
     def mark_displayed(self, now: float) -> None: ...
+
+    def apply_event(self, result: Result, now: float) -> None: ...
 
 
 class HitTargetPort(Protocol):
@@ -331,6 +343,8 @@ class ControllerPort(Protocol):
     def begin_shutdown(self) -> bool: ...
 
     def apply_result(self, result: Result) -> None: ...
+
+    def request_ad_event(self, panel: AdsPanelPort, event_type: str) -> bool: ...
 
 
 class ApplicationPort(Protocol):

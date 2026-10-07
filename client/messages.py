@@ -15,6 +15,8 @@ class Request:
     action: str = 'move'
     slot_id: str = 'village-board'
     request_id: int = 0
+    decision_id: str = ''
+    event_type: str = ''
 
 
 @dataclass(frozen=True)
@@ -35,3 +37,6 @@ class Result:
     decision_id: str = ''
     ad: dict | None = None
     image_bytes: bytes = field(default=b'', repr=False)
+    event_type: str = ''
+    ad_event: dict | None = None
+    event_rejected: bool = False

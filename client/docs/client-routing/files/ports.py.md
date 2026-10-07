@@ -140,6 +140,7 @@ ApiClientPort.get_windows() -> await dict
 ApiClientPort.get_load() -> await dict
 ApiClientPort.get_metrics() -> await dict
 ApiClientPort.get_history() -> await dict
+ApiClientPort.post_ad_event(decision_id, event_type) -> await dict
 ```
 
 구현: `network_api.ApiClient`와 그 class factory.
@@ -208,6 +209,7 @@ toggle_history() -> None
 request_history() -> None
 begin_shutdown() -> bool
 apply_result(result: Result) -> None
+request_ad_event(panel: AdsPanelPort, event_type: str) -> bool
 ```
 
 구현: `controller.ClientController`.
@@ -246,7 +248,7 @@ ConfigPort.ads_base_url: 공개 광고 origin.
 
 ### `AdsPanelPort`
 
-slot_id/decision/image_bytes/image_status/displayed/pending/request_id/message를 노출한다. 구체 구현은 ads_panel.AdsPanelState다.
+slot_id/decision/image_bytes/image_status/displayed/pending/request_id/message와 impression_pending/impression_ok/click_pending/click_ok/click_requested/event_retry_at/event_error/event_rejected를 노출한다. 구체 구현은 ads_panel.AdsPanelState다.
 
 #### `AdsPanelPort.begin(now, visible) -> bool`
 
@@ -257,5 +259,9 @@ slot_id/decision/image_bytes/image_status/displayed/pending/request_id/message�
 - `clear()`: 로그아웃 시 상태를 비운다.
 - `image_ready(success)`: 이미지 변환 결과를 받는다.
 - `mark_displayed(now)`: frame 표시 완료를 기록한다.
+
+#### `AdsPanelPort.apply_event(self, result: Result, now: float) -> None`
+
+현재 결정의 사건 응답을 적용한다.
 
 RendererPort.draw의 네 번째 선택 인자는 ads_panel: AdsPanelPort | None = None이며 다섯 번째 선택 인자는 lobby_ads_panel: AdsPanelPort | None = None이다. ads_visible(slot_id='village-board') -> bool이 추가된다. 기존 세 인자 호출도 유지한다.

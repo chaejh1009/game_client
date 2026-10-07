@@ -16,11 +16,11 @@
 | `client/messages.py` | [`files/messages.py.md`](files/messages.py.md) | 계층 사이의 요청·결과 값 계약 |
 | `client/network.py` | [`files/network.py.md`](files/network.py.md) | worker 수명주기와 네트워크 유스케이스 조정 |
 | `client/network_auth.py` | [`files/network_auth.py.md`](files/network_auth.py.md) | Django form/CSRF/cookie 인증 |
-| `client/network_api.py` | [`files/network_api.py.md`](files/network_api.py.md) | 검증된 JSON API 조회 |
+| `client/network_api.py` | [`files/network_api.py.md`](files/network_api.py.md) | 검증된 JSON API 조회와 CSRF 광고 사건 POST |
 | `client/network_ws.py` | [`files/network_ws.py.md`](files/network_ws.py.md) | `/ws/play/`, broadcast, `command_id` 대기 |
 | `client/network_validation.py` | [`files/network_validation.py.md`](files/network_validation.py.md) | HTTP/WS 응답 검증과 안전 투영 |
 | `client/network_errors.py` | [`files/network_errors.py.md`](files/network_errors.py.md) | 네트워크 컴포넌트 공통 안전 오류 |
-| `client/ads_panel.py` | [`files/ads_panel.py.md`](files/ads_panel.py.md) | 광고 결정·이미지 상태, 10초 유지·15초 갱신, 늦은 결과 거부 |
+| `client/ads_panel.py` | [`files/ads_panel.py.md`](files/ads_panel.py.md) | 광고 결정·이미지·사건 확인 상태, 유지·갱신·재시도와 늦은 결과 거부 |
 | `client/network_ads.py` | [`files/network_ads.py.md`](files/network_ads.py.md) | 게임 게이트웨이 광고 선택, 무인증·제한된 static 이미지 다운로드 |
 | `client/render_ads.py` | [`files/render_ads.py.md`](files/render_ads.py.md) | 메인 스레드 광고 이미지 변환·출력과 확인 항목 |
 | `client/panels.py` | [`files/panels.py.md`](files/panels.py.md) | 통계·이력 패널 상태 전이 |
@@ -65,6 +65,7 @@ network.py
   -> ApiClientFactoryPort -> ApiClientPort -> network_api.py
      -> /api/player/, /api/delivery/, /api/analytics/, /api/analytics/ingest/
      -> /api/analytics/windows/, /api/analytics/load/, /api/analytics/metrics/, /api/history/
+     -> POST /api/ads/events/ (게시판 노출·클릭)
   -> GameSocketFactoryPort -> GameSocketPort -> network_ws.py
      -> /ws/play/
   -> ResponseValidatorPort -> network_validation.py
@@ -78,12 +79,12 @@ network.py
 
 - `main.py`: 유일한 composition root로서 구체 구현을 생성하지만, 실행 호출은 `ApplicationPort` 계약을 따른다.
 - `client_app.py`: `AdsPanelPort`, `ConfigPort`, `ControllerPort`, `NetworkPort`, `RendererFactoryPort`, `RendererPort`, 상태·패널 포트만 알고 구체 구현 모듈은 import하지 않는다.
-- `controller.py`: `StatePort`, 두 패널 포트, `NetworkPort`만 호출하며 pygame과 구체 구현은 모른다.
+- `controller.py`: `StatePort`, 통계·이력·광고 패널 포트, `NetworkPort`만 호출하며 pygame과 구체 구현은 모른다.
 - `ports.py`: 상위 계층이 사용할 수 있는 속성과 메서드만 선언하고 구현과 I/O를 갖지 않는다.
 - `messages.py`: `Request`, `Result`와 허용 필드 상수만 정의하며 상태나 I/O를 갖지 않는다.
 - `network.py`: 요청 종류와 동시 task 정책만 알고 인증·API·WS·광고·검증 구현은 포트로 호출한다. 게임 HTTP/WS는 하나의 인증 session을 공유하고, 공개 광고용 DummyCookieJar session은 같은 worker loop에서 별도로 닫는다.
 - `network_auth.py`: Django form/CSRF/cookie 계약만 안다.
-- `network_api.py`: 기존 JSON endpoint와 부하·전달 측정 GET의 transport 제한만 알고 검증은 `ResponseValidatorPort`에 맡긴다.
+- `network_api.py`: 기존 JSON endpoint와 부하·전달 측정 GET의 검증은 `ResponseValidatorPort`에 맡기며, 광고 사건 POST의 CSRF·상태 코드·응답 검증과 안전 투영은 직접 수행한다.
 - `network_ws.py`: `/ws/play/`, broadcast, `command_id` waiter만 알고 응답 검증은 `ResponseValidatorPort`에 맡긴다.
 - `network_validation.py`: 외부 데이터 검증과 안전 투영만 하며 네트워크 I/O를 하지 않는다.
 - `network_errors.py`: 사용자에게 노출 가능한 메시지와 로그인 필요 여부만 보존한다.
@@ -143,10 +144,13 @@ network.py
 
 - 게임 화면의 게시판 슬롯과 로그인창 왼쪽의 로비 슬롯을 각 장면에서만 조회한다. 각 Rect가 완전히 보일 때만 요청하고 최소화/숨김·종료 중에는 멈춘다. 게시판은 통계·이력 overlay나 스크롤로 숨겨져도 멈춘다. 이동 입력과 FPS는 요청 계기가 아니다.
 - `ads_base_url=http://127.0.0.1:8001`은 게임 origin과 별도 설정이다. 타일은 `client/assets`를 계속 사용하며 광고 creative는 서버 static에서만 읽는다.
-- 광고 선택은 게임 origin의 GET `/api/ads/decision/?slot_id=...`를 요청한다. 게시판은 인증 session을 사용하며 405이면 CSRF JSON POST로 재요청한다. 로비는 무인증 GET만 사용하고 405/401이면 로그인 전 조회 미지원/불허 안내를 표시한다. empty=true는 `등록된 광고 없음`, false는 검증된 서버 title·creative를 표시한다. 이미지 광고와 body/bid_amount 본문 광고를 지원한다. 노출·클릭·광고주 관리 POST는 없다.
+- 광고 선택은 게임 origin의 GET `/api/ads/decision/?slot_id=...`를 요청한다. 게시판은 인증 session을 사용하며 405이면 CSRF JSON POST로 재요청한다. 로비는 무인증 GET만 사용하고 405/401이면 로그인 전 조회 미지원/불허 안내를 표시한다. empty=true는 `등록된 광고 없음`, false는 검증된 서버 title·creative를 표시한다. 이미지 광고와 body/bid_amount 본문 광고를 지원한다. 로그인 후 게시판의 실제 표시 완료 뒤 `/api/ads/events/`로 impression을 저장하고, 확인 완료 뒤 사용자 클릭을 click으로 저장한다. 로비에는 사건 POST를 보내지 않으며 로그인 전 노출 API 성공을 요구하지 않는다.
 - 게시판 선택은 게임 인증 HTTP/WS session을 공유하며 로비 선택은 DummyCookieJar session을 사용한다. 이미지는 분리된 DummyCookieJar session으로 광고 origin에서 받으며 cookie, CSRF, 매체 키, Authorization을 보내지 않는다. 두 요청 모두 redirect를 따라가지 않는다.
 - creative는 `/static/ads/creatives/` 아래 ASCII 경로만 허용한다. 외부 host/scheme, `..`, 역슬래시, percent encoding, query/fragment, 다른 경로를 거부한다. 이미지의 5초·200·PNG/JPEG/WebP/GIF MIME·2MiB 제한과 Content-Length 없는 청크 상한을 적용한다.
 - queue의 이미지 결과는 요청 세대와 decision_id가 모두 현재 값일 때만 받는다. Surface는 메인 스레드에서 BytesIO→image.load→convert_alpha→blit하고 기존 present의 display.flip 후 표시 완료로 판정한다. 실패는 title 안내와 미표시 상태를 유지한다.
 - 요청 시작 간격은 최소 15초, 결정 유지와 첫 성공 표시 이후 유지 시간은 각각 최소 10초다. 숨겨져 아직 변환되지 않은 bytes는 화면 복귀 후 표시 판정까지 갱신하지 않는다.
 - 확인 항목은 결정 ID·캠페인·슬롯·모의 포인트·이미지 준비·표시 상태뿐이다. bid_units를 모의 포인트로 표시하며 게임 coins를 변경하지 않는다.
 - 종료 시 광고 task도 취소·회수하고 무인증 session을 닫는다. 기존 게임 state/snapshot, command_id, 인증 세션과 로그아웃 순서는 그대로다.
+
+- 게시판 사건 요청은 현재 request_id/decision_id/event_type으로 식별한다. 일시 실패는 최소 2초 뒤 같은 결정을 재전송하며 확인 전에는 광고를 교체하지 않는다. 400/403/404 영구 거절은 같은 사건을 멈추고 2초 뒤 새 광고를 요청한다. 302/401과 CSRF cookie 부재는 기존 재로그인 흐름을 따른다.
+- 사건 task는 일반 게임 명령과 독립적으로 실행하고 종료 시 취소·회수한다. 로그아웃·인증 만료 시 두 광고 패널을 초기화하여 이전 결정 응답을 무효화한다.

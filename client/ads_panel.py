@@ -16,6 +16,52 @@ class AdsPanelState:
     last_request: float = float('-inf')
     retained_until: float = 0
     message: str = '광고 선택 대기'
+    impression_pending: bool = False
+    impression_ok: bool = False
+    click_pending: bool = False
+    click_ok: bool = False
+    click_requested: bool = False
+    event_retry_at: float = 0
+    event_error: str = ''
+    event_rejected: bool = False
+
+    def reset_events(self) -> None:
+        self.impression_pending = self.impression_ok = False
+        self.click_pending = self.click_ok = self.click_requested = False
+        self.event_retry_at = 0
+        self.event_error = ''
+        self.event_rejected = False
+
+    def apply_event(self, result: Result, now: float) -> None:
+        if (result.slot_id != self.slot_id or result.request_id != self.request_id
+                or result.decision_id != str(self.decision.get('decision_id', ''))
+                or result.event_type not in ('impression', 'click')):
+            return
+        kind = result.event_type
+        if not getattr(self, kind + '_pending'):
+            return
+        setattr(self, kind + '_pending', False)
+        data = result.ad_event
+        valid = (
+            result.kind == 'ad_event' and isinstance(data, dict)
+            and data.get('event_id') == result.decision_id + ':' + kind
+            and data.get('event_type') == kind
+            and type(data.get('created')) is bool)
+        if valid:
+            setattr(self, kind + '_ok', True)
+            self.event_error = ''
+            self.message = '노출 저장 완료 · 광고 클릭 가능' if kind == 'impression' else '클릭 저장 완료'
+        else:
+            self.event_error = result.message or '광고 실적 확인 실패'
+            self.message = self.event_error
+            self.event_rejected = result.event_rejected
+            if self.event_rejected:
+                self.click_requested = False
+                self.message = '광고 새 요청 필요'
+                self.retained_until = now + 2
+                self.last_request = now - 15
+            else:
+                self.event_retry_at = now + 2
 
     def clear(self) -> None:
         self.request_id += 1  # Invalidate queued results across logout/relogin.
@@ -26,9 +72,14 @@ class AdsPanelState:
         self.last_request = float('-inf')
         self.retained_until = 0
         self.message = '광고 선택 대기'
+        self.reset_events()
 
     def begin(self, now: float, visible: bool) -> bool:
         if (not visible or self.pending or self.image_status == 'bytes 준비'
+                or self.impression_pending or self.click_pending
+                or (not self.event_rejected and self.slot_id == 'village-board'
+                    and self.displayed and not self.impression_ok)
+                or (not self.event_rejected and self.click_requested and not self.click_ok)
                 or now - self.last_request < 15 or now < self.retained_until):
             return False
         self.request_id += 1
@@ -42,6 +93,7 @@ class AdsPanelState:
         if result.slot_id != self.slot_id or result.request_id != self.request_id or not self.pending:
             return True
         if result.kind == 'ads_decision':
+            self.reset_events()
             self.decision = result.ad or {}
             self.image_bytes = b''
             self.displayed = False

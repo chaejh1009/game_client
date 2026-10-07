@@ -6,7 +6,7 @@
 
 ## 책임과 경계
 
-주입받은 단일 ClientSession으로 기존 JSON 조회 API와 두 측정 조회 API를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
+주입받은 단일 ClientSession으로 기존 JSON 조회 API와 두 측정 조회 API, 광고 사건 POST를 호출한다. JSON transport 제한은 직접 적용하고 endpoint별 데이터 검증은 `ResponseValidatorPort`로 위임한다. `ApiClientPort`를 구조적으로 구현하며 인증 form, WS, worker task는 알지 않는다.
 
 ## `ApiClient` 필드
 
@@ -60,7 +60,7 @@ _get('/api/delivery/', validator.validate_delivery)
 _get('/api/analytics/', validator.validate_analytics)
 ```
 
-사용자의 명시적 조회 요청에만 호출하며 GET 이외의 메서드, Spark 실행 요청, Kafka 연결을 만들지 않는다.
+사용자의 명시적 조회 요청에만 호출하며 이 조회 메서드는 Spark 실행 요청이나 Kafka 연결을 만들지 않는다.
 
 ### `get_ingest(self) -> dict` (`async`)
 
@@ -100,3 +100,25 @@ _get('/api/analytics/metrics/', validator.validate_metrics)
 ```text
 _get('/api/history/', validator.validate_history)
 ```
+
+## `AdEventRejected`
+
+Failure의 하위 클래스이며 event_rejected=True로 같은 사건 재전송 대신 새 결정이 필요한 거절을 표시한다.
+
+### `post_ad_event(self, decision_id: str, event_type: str) -> dict` (`async`)
+
+```text
+비어 있지 않은 128자 이하 문자열 결정과 impression/click 검사; 위반 시 Failure
+게임 session의 origin 대상 csrftoken이 없으면 needs_login Failure
+POST origin+'/api/ads/events/' JSON {decision_id, event_type}
+Accept JSON, X-CSRFToken, Origin, Referer=origin+'/play/', redirect 비허용
+302/401 -> needs_login AdEventRejected
+400/403/404 -> AdEventRejected; 400 JSON의 알려진 오류 코드만 사용자 안내로 변환
+그 외 비-200 -> 같은 결정을 재전송하는 Failure
+200 JSON을 8192-byte chunk로 읽고 65536 bytes 상한 검사
+객체, event_id=decision_id+':'+event_type, event_type 일치, created가 bool인지 검사
+검증된 event_id/event_type/created만 반환
+finally Result('api', status, safe, path)를 result sink로 전달
+```
+
+인증·쿠키·CSRF와 임의 응답 원문은 결과에 포함하지 않는다. session timeout은 worker가 설정한다.

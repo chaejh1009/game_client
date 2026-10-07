@@ -12,7 +12,7 @@
 
 - `messages.Request`, `messages.Result`
 - `ports.StatePort`
-- `ports.AnalyticsPanelPort`, `ports.HistoryPanelPort`
+- `ports.AnalyticsPanelPort`, `ports.HistoryPanelPort`, `ports.AdsPanelPort`
 - `ports.NetworkPort`
 
 `state`, `panels`, `network` concrete 모듈은 import하지 않는다.
@@ -165,3 +165,16 @@ logged_out 또는 needs_login이면 두 패널 clear()
 
 패널 결과 적용 순서와 로그인 만료 시 일반 상태 적용을 보존한다.
 `analytics`/`analytics_error`, `windows`/`windows_error`, `load`/`load_error`, `metrics`/`metrics_error`는 통계 패널이 소비하여 게임 플레이어 상태와 섞이지 않는다. API 조회의 `Result(kind='api')`는 별도로 일반 상태에 전달되어 경로·status·검증된 JSON만 API 응답 보기에 표시한다. `needs_login` 결과만 기존 로그인 안내와 패널 초기화 흐름을 따른다.
+
+### `request_ad_event(self, panel: AdsPanelPort, event_type: str) -> bool`
+
+```text
+monotonic 시각과 decision_id 확인
+미인증·종료·게시판 아님·결정 없음/empty·미표시·영구 거절·준비 아님·재시도 시각 이전이면 False
+impression은 pending/ok이면 False; 아니면 impression_pending=True
+click은 impression_ok가 아니거나 click_pending/click_ok이면 False; 아니면 click_requested/click_pending=True
+그 외 event_type이면 False
+event_error 제거, 저장 중 메시지 설정
+NetworkPort.submit(Request('ad_event', request_id, slot_id, decision_id, event_type))
+True 반환
+```

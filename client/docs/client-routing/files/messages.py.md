@@ -18,6 +18,7 @@ worker 입력용 dataclass.
 - `direction: str`: 이동 방향, 기본 `''`.
 - `action: str`: 명령 종류, 기본 `'move'`.
 - `request_id: int`: 광고 요청 세대, 기본 0.
+- `decision_id: str`, `event_type: str`: 사건 대상 결정과 impression/click 종류, 기본 빈 문자열.
 
 메서드와 I/O는 없다.
 
@@ -35,6 +36,7 @@ worker 출력용 불변 dataclass. 비밀번호, cookie, CSRF token, 원문 임�
 - `direction`, `action`: 완료/실패한 게임 명령 식별.
 - `request_id`, `decision_id`: 광고 요청 세대와 결정 식별.
 - `ad`: 검증된 광고 결정 dict 또는 None.
+- `event_type`, `ad_event`, `event_rejected`: 사건 종류, 검증된 event_id/event_type/created 응답, 영구 거절 여부.
 - `image_bytes`: 2MiB 이하 공개 이미지 bytes, 기본 b'', repr 제외.
 
 메서드와 I/O는 없다.
@@ -46,6 +48,7 @@ controller.py -> 게임/조회 Request 생성 -> NetworkPort.submit
 client_app.py -> 광고 Request 생성 -> NetworkPort.submit
 network.py -> Request 소비
 network.py -> Result 생성 -> NetworkPort.get_result_nowait
+client_app.py -> ad_event/ad_event_error는 게시판 AdsPanelPort.apply_event (needs_login은 controller 적용·두 광고 패널 초기화)
 client_app.py -> ads_* + AdsPanelPort가 있으면 AdsPanelPort.apply(Result, now)
 client_app.py -> 그 외 ControllerPort.apply_result(Result)
 controller.py -> StatePort/PanelPort.apply(Result)

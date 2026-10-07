@@ -66,8 +66,10 @@ idle = 행동 통계·ingest·windows 중 진행 중인 요청이 없음
 ### `_handle_mouse(self, event, renderer) -> None`
 
 ```text
-현재 허용된 control 이름 순회
-RendererPort.pointer_to_content(event.pos)로 좌표 변환 후 controls[name]과 충돌 검사
+RendererPort.pointer_to_content(event.pos)로 좌표 변환
+게시판 패널 존재·인증·통계/이력 비표시·광고 visible이며 controls.get('ad_click')과 충돌하면:
+    ControllerPort.request_ad_event(ads_panel, 'click') 호출 후 반환
+현재 허용된 control 이름 순회 후 controls[name]과 충돌 검사
 입력 필드면 State.focus 변경
 게임/조회/패널 control이면 대응 ClientController 메서드 호출
 analytics_refresh/api_analytics이면 request_analytics 호출
@@ -111,6 +113,9 @@ closing/busy가 아니면 mouse/keydown 이벤트를 전용 helper로 전달
 
 ```text
 NetworkPort.get_result_nowait() 반복
+ad_event/ad_event_error이면:
+    needs_login이면 controller.apply_result 후 두 광고 패널 clear
+    아니고 게시판 패널 존재·인증·비종료이면 apply_event(result, monotonic())
 ads_* 결과이면:
     비종료이며 현재 장면에 맞는 슬롯만 적용: 인증이면 게시판, 미인증이면 로비 패널의 apply(result, time.monotonic()) 호출
 그 외 controller.apply_result(result)에 전달
@@ -139,6 +144,9 @@ Clock 생성, 텍스트 입력 시작
         renderer.draw(state, analytics_panel, history_panel, ads_panel if visible else None)
         lobby_ads_panel이 있으면 draw의 다섯 번째 인자로 lobby_ads_panel if lobby_visible else None 전달
     두 광고 패널 모두 없으면 renderer.draw(state, analytics_panel, history_panel)
+    draw/present 완료 후 게시판 존재·인증·비종료·비최소화·광고 visible·통계/이력 비표시이면:
+        ControllerPort.request_ad_event(ads_panel, 'impression')
+        click_requested이면 ControllerPort.request_ad_event(ads_panel, 'click')로 재시도
     clock.tick(60)
 
 finally:
@@ -164,6 +172,7 @@ pygame event
 
 NetworkPort.get_result_nowait
   -> ClientApp._drain_results
+     -> ad_event/ad_event_error는 apply_event 또는 needs_login 처리
      -> ads_* + AdsPanelPort가 있으면 AdsPanelPort.apply (비종료이며 현재 장면의 슬롯만)
      -> 그 외 ControllerPort.apply_result
 

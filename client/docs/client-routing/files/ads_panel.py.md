@@ -10,12 +10,29 @@ AdsPanelPort를 구현하는 메인 스레드 상태 dataclass다.
 
 ## 필드
 
-slot_id는 패널의 광고 슬롯(기본 village-board)이다. decision은 허용 광고 필드, image_bytes는 repr 제외 공개 bytes, image_status/displayed/message는 GUI 안내다. pending/request_id는 요청 진행·세대, last_request는 monotonic 요청 시작 시각, retained_until은 다음 교체 가능 시각이다. 초기 last_request는 -inf다. 게임 coins와 별개다.
+slot_id는 패널의 광고 슬롯(기본 village-board)이다. decision은 허용 광고 필드, image_bytes는 repr 제외 공개 bytes, image_status/displayed/message는 GUI 안내다. pending/request_id는 요청 진행·세대, last_request는 monotonic 요청 시작 시각, retained_until은 다음 교체 가능 시각이다. impression_pending/impression_ok와 click_pending/click_ok/click_requested는 사건 저장 상태다. event_retry_at은 재시도 시각, event_error는 안내, event_rejected는 새 결정이 필요한 영구 거절 여부다. 초기 last_request는 -inf다. 게임 coins와 별개다.
 
 ## 메서드
 
-- `clear()`: request_id 증가 -> 결정·bytes·표시/진행/시각 초기화. 이전 계정에서 온 결과를 무효화한다.
-- `begin(now, visible) -> bool`: 비표시·pending·미변환 bytes·요청 후 15초 미만·retained_until 이전이면 False -> 요청 세대 증가, last_request/pending 갱신 -> True. 호출자는 Request를 queue에 제출한다.
-- `apply(result, now) -> bool`: ads_* 외 False -> slot_id 또는 request_id 불일치/진행 아님이면 소비만 하고 무시 -> ads_decision이면 결정/bytes/표시 초기화, 10초 유지, empty 안내/완료 또는 다운로드 상태 -> ads_text는 현재 decision_id 일치 시 pending 해제·준비 상태로 전환 -> ads_image/ads_image_error는 현재 decision_id 일치 시에만 bytes/오류 적용하고 pending 해제 -> ads_error면 pending 해제·안내 갱신. 항상 게임 State와 분리한다.
+- `clear()`: request_id 증가 -> 결정·bytes·표시/진행/시각 초기화, reset_events 호출. 이전 계정에서 온 결과를 무효화한다.
+- `begin(now, visible) -> bool`: 비표시·pending·미변환 bytes·사건 전송 중·영구 거절이 아닌 표시된 게시판의 미확인 노출 또는 미완료 요청 클릭·요청 후 15초 미만·retained_until 이전이면 False -> 요청 세대 증가, last_request/pending 갱신 -> True. 호출자는 Request를 queue에 제출한다.
+- `apply(result, now) -> bool`: ads_* 외 False -> slot_id 또는 request_id 불일치/진행 아님이면 소비만 하고 무시 -> ads_decision이면 reset_events 호출 후 결정/bytes/표시 초기화, 10초 유지, empty 안내/완료 또는 다운로드 상태 -> ads_text는 현재 decision_id 일치 시 pending 해제·준비 상태로 전환 -> ads_image/ads_image_error는 현재 decision_id 일치 시에만 bytes/오류 적용하고 pending 해제 -> ads_error면 pending 해제·안내 갱신. 항상 게임 State와 분리한다.
 - `image_ready(success)`: 메인 스레드 변환 성공이면 준비/표시 대기, 실패이면 제목 안내·실패 -> displayed=False.
 - `mark_displayed(now)`: 준비 상태의 첫 flip 완료일 때만 displayed=True -> 표시 완료 안내 -> retained_until을 최소 now+10으로 연장.
+
+### `reset_events(self) -> None`
+
+사건 pending/ok/requested를 False, 재시도 시각을 0, 오류를 빈 문자열, 영구 거절을 False로 초기화한다. 외부 호출은 없다.
+
+### `apply_event(self, result: Result, now: float) -> None`
+
+```text
+slot_id/request_id/decision_id 불일치, 잘못된 사건 종류, 해당 pending 아님이면 무시
+해당 pending 해제
+ad_event 성공이며 event_id가 결정:종류, event_type이 종류, created가 bool이면:
+    해당 ok=True, 오류 제거, 완료 안내 (created=False 중복 확인도 성공)
+그 외 오류 안내와 event_rejected 적용
+    영구 거절이면 click_requested=False, 새 요청 안내, retained_until=now+2, last_request=now-15
+    일시 오류이면 event_retry_at=now+2
+외부 I/O 없음
+```

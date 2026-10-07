@@ -35,6 +35,8 @@ class AdsRenderer:
         pygame.draw.rect(view.screen, CARD, rect, border_radius=10)
         pygame.draw.rect(view.screen, ACCENT, rect, width=1, border_radius=10)
         data = panel.decision
+        if panel.slot_id == 'village-board':
+            view.controls['ad_click'] = pygame.Rect(rect.x + 12, rect.y + 30, rect.width - 24, 128)
         view.text('로비 광고' if panel.slot_id == 'lobby-banner' else '마을 게시판 광고', (rect.x + 12, rect.y + 8), ACCENT, view.small)
         title = ('등록된 광고 없음' if data.get('empty') else data.get('title', panel.message))
         view.screen.set_clip(pygame.Rect(rect.x + 12, rect.y + 30, rect.width - 24, 40))
@@ -54,7 +56,18 @@ class AdsRenderer:
             blitted = True
         view.text(f"모의 포인트: {data.get('bid_units', '—')}",
                   (rect.x + 12, rect.y + 166), INK, view.small)
-        view.wrapped(panel.message, rect.x + 12, rect.y + 187, rect.width - 24,
-                     font=view.small, color=MUTED)
+        if panel.slot_id == 'village-board':
+            label = ('광고 새 요청 필요' if panel.event_rejected else
+                     f"노출 {'완료' if panel.impression_ok else '대기'} · 클릭 {'완료' if panel.click_ok else '대기'}")
+            view.text(label,
+                      (rect.x + 12, rect.y + 185), MUTED, view.small)
+            status = (panel.event_error.split(' 광고 새 요청 필요', 1)[0]
+                      if panel.event_rejected else panel.message)
+            if len(status) > 23:
+                status = status[:22] + '…'
+            view.text(status, (rect.x + 12, rect.y + 202), MUTED, view.tiny)
+        else:
+            view.wrapped(panel.message, rect.x + 12, rect.y + 187, rect.width - 24,
+                         font=view.small, color=MUTED)
         view.screen.set_clip(previous)
         return blitted

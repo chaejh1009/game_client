@@ -68,6 +68,13 @@ class ClientApp:
 
     def _handle_mouse(self, event: Any, renderer: RendererPort) -> None:
         pos = renderer.pointer_to_content(event.pos)
+        ad_target = renderer.controls.get('ad_click')
+        if (self.ads_panel is not None and self.state.authenticated
+                and not self.analytics_panel.visible and not self.history_panel.visible
+                and renderer.ads_visible() and ad_target is not None
+                and ad_target.collidepoint(pos)):
+            self.controller.request_ad_event(self.ads_panel, 'click')
+            return
         for name in self._control_names():
             if not renderer.controls[name].collidepoint(pos):
                 continue
@@ -148,7 +155,16 @@ class ClientApp:
         while True:
             try:
                 result = self.worker.get_result_nowait()
-                if result.kind.startswith('ads_'):
+                if result.kind in ('ad_event', 'ad_event_error'):
+                    if result.needs_login:
+                        self.controller.apply_result(result)
+                        for panel in (self.ads_panel, self.lobby_ads_panel):
+                            if panel is not None:
+                                panel.clear()
+                    elif (self.ads_panel is not None and self.state.authenticated
+                          and not self.state.closing):
+                        self.ads_panel.apply_event(result, time.monotonic())
+                elif result.kind.startswith('ads_'):
                     if (not self.state.closing and
                             (result.slot_id == 'lobby-banner') != self.state.authenticated):
                         panel = (self.lobby_ads_panel if result.slot_id == 'lobby-banner'
@@ -202,6 +218,14 @@ class ClientApp:
                         renderer.draw(*args)
                 else:
                     renderer.draw(self.state, self.analytics_panel, self.history_panel)
+                # Renderer.draw marks displayed only after present()/display.flip().
+                if (self.ads_panel is not None and self.state.authenticated
+                        and not self.state.closing and not self._minimized
+                        and renderer.ads_visible()
+                        and not self.analytics_panel.visible and not self.history_panel.visible):
+                    self.controller.request_ad_event(self.ads_panel, 'impression')
+                    if self.ads_panel.click_requested:
+                        self.controller.request_ad_event(self.ads_panel, 'click')
                 clock.tick(60)
         finally:
             self.state.password = ''

@@ -102,11 +102,14 @@ ApiClientFactoryPort(session, origin, validator, result sink) -> ApiClientPort
 GameSocketFactoryPort(session, origin, validator, result sink) -> GameSocketPort
 ads_factory가 있으면 AdsClientFactoryPort(public_session, ads_origin, result sink, game_session=session, game_origin=origin) -> AdsClientPort
 
-ads_tasks(slot_id별), active, delivery_task, analytics_task, ingest_task, windows_task, history_task 슬롯과 load/metrics task 두 슬롯 유지
+ad_event_tasks((request_id, decision_id, event_type)별), ads_tasks(slot_id별), active, delivery_task, analytics_task, ingest_task, windows_task, history_task 슬롯과 load/metrics task 두 슬롯 유지
 반복:
     완료 task await 후 슬롯 비우기
     request가 없으면 worker만 0.02초 yield
     stop이면 종료
+    ad_event이면:
+        키별 독립 _dispatch task를 생성; 중복이면 식별 필드가 포함된 ad_event_error 출력
+        일반 active 슬롯을 사용하지 않음
     ads이면:
         AdsClientPort가 있고 request.slot_id의 task가 비면 select(request.request_id, request.slot_id)를 task로 시작; 중복 오류에도 slot_id 전달
         그 외 request_id가 포함된 ads_error 결과 반환
@@ -117,7 +120,7 @@ ads_tasks(slot_id별), active, delivery_task, analytics_task, ingest_task, windo
     active 중 command가 오면 command_error 출력
     처리하지 않은 request credential 제거
 finally:
-    ads_tasks의 모든 슬롯을 포함한 남은 task 취소 및 회수
+    ad_event_tasks와 ads_tasks의 모든 슬롯을 포함한 남은 task 취소 및 회수
     GameSocketPort.shutdown()
     AuthPort.clear()
     공개 session의 AsyncExitStack 종료 후 게임 ClientSession context 종료
@@ -140,6 +143,8 @@ login:
     Result('player') 출력
     GameSocketPort.start_listener()
 
+ad_event -> 인증 검사, ApiClientPort.post_ad_event(decision_id, event_type),
+            Result('ad_event', request_id, slot_id, decision_id, event_type, ad_event=검증된 응답)
 player -> 인증 검사, ApiClientPort.get_player(), Result('player')
 delivery -> 인증 검사, ApiClientPort.get_delivery(), Result('delivery')
 analytics -> 인증 검사, ApiClientPort.get_analytics(), Result('analytics')
@@ -153,7 +158,8 @@ command -> GameSocketPort.command(action, direction), Result('command')
 
 알려진 안전 오류:
     needs_login과 요청 종류에 따라 socket/auth 정리
-    요청 종류별 *_error 또는 error Result 출력
+    요청 종류별 *_error 또는 error Result 출력; 광고 사건은 ad_event_error
+    오류에도 request_id/slot_id/decision_id/event_type과 예외의 event_rejected 여부 전달
 finally:
     request username/password 제거
 ```

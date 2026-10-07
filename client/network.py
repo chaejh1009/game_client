@@ -83,6 +83,7 @@ class NetworkWorker:
                                      game_session=session, game_origin=self.origin)
                    if self._ads_factory else None)
             ads_tasks = {}
+            ad_event_tasks = {}
             active = None
             delivery_task = None
             analytics_task = None
@@ -92,6 +93,10 @@ class NetworkWorker:
             measurement_tasks = {'load': None, 'metrics': None}
             try:
                 while True:
+                    for key, task in list(ad_event_tasks.items()):
+                        if task.done():
+                            await task
+                            del ad_event_tasks[key]
                     for slot_id, task in list(ads_tasks.items()):
                         if task.done():
                             await task
@@ -125,6 +130,17 @@ class NetworkWorker:
                         continue
                     if request.kind == 'stop':
                         break
+                    if request.kind == 'ad_event':
+                        key = (request.request_id, request.decision_id, request.event_type)
+                        if key not in ad_event_tasks:
+                            ad_event_tasks[key] = asyncio.create_task(
+                                self._dispatch(request, auth, api, game_socket))
+                        else:
+                            self.results.put(Result(
+                                'ad_event_error', '같은 광고 실적을 전송 중입니다.',
+                                request_id=request.request_id, slot_id=request.slot_id,
+                                decision_id=request.decision_id, event_type=request.event_type))
+                        continue
                     if request.kind == 'ads':
                         if ads is not None and request.slot_id not in ads_tasks:
                             ads_tasks[request.slot_id] = asyncio.create_task(
@@ -192,7 +208,7 @@ class NetworkWorker:
                         request.password = request.username = ''
             finally:
                 for task in (
-                        *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
+                        *ad_event_tasks.values(), *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task):
                     if task is not None:
                         task.cancel()
@@ -201,7 +217,7 @@ class NetworkWorker:
                         task.cancel()
                 await asyncio.gather(
                     *(task for task in (
-                        *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
+                        *ad_event_tasks.values(), *ads_tasks.values(), active, delivery_task, analytics_task, ingest_task,
                         windows_task, history_task, *measurement_tasks.values())
                       if task is not None),
                     return_exceptions=True)
@@ -231,6 +247,14 @@ class NetworkWorker:
                     raise Failure('먼저 로그인하세요.', True)
                 player = await api.get_player()
                 self.results.put(Result('player', '상태를 갱신했습니다.', player=player))
+            elif request.kind == 'ad_event':
+                if not self._authenticated:
+                    raise Failure('먼저 로그인하세요.', True)
+                data = await api.post_ad_event(request.decision_id, request.event_type)
+                self.results.put(Result(
+                    'ad_event', '광고 실적 저장 완료', request_id=request.request_id,
+                    slot_id=request.slot_id, decision_id=request.decision_id,
+                    event_type=request.event_type, ad_event=data))
             elif request.kind == 'delivery':
                 if not self._authenticated:
                     raise Failure('먼저 로그인하세요.', True)
@@ -299,7 +323,9 @@ class NetworkWorker:
                 needs_login = True
             if request.kind == 'logout':
                 message += ' 로컬 계정은 지웠으나 서버 로그아웃은 확인되지 않았습니다.'
-            if request.kind == 'command':
+            if request.kind == 'ad_event':
+                kind = 'ad_event_error'
+            elif request.kind == 'command':
                 kind = 'command_error'
             elif request.kind == 'delivery':
                 kind = 'delivery_error'
@@ -317,6 +343,9 @@ class NetworkWorker:
                 kind = 'error'
             self.results.put(Result(
                 kind, message, needs_login=needs_login,
-                direction=request.direction, action=request.action))
+                direction=request.direction, action=request.action,
+                request_id=request.request_id, slot_id=request.slot_id,
+                decision_id=request.decision_id, event_type=request.event_type,
+                event_rejected=bool(getattr(error, 'event_rejected', False))))
         finally:
             request.password = request.username = ''

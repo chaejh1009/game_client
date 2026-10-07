@@ -2,7 +2,7 @@
 import time
 
 from messages import Request, Result
-from ports import AnalyticsPanelPort, HistoryPanelPort, NetworkPort, StatePort
+from ports import AdsPanelPort, AnalyticsPanelPort, HistoryPanelPort, NetworkPort, StatePort
 
 
 class ClientController:
@@ -131,3 +131,29 @@ class ClientController:
         if result.kind == 'logged_out' or result.needs_login:
             self.analytics_panel.clear()
             self.history_panel.clear()
+
+    def request_ad_event(self, panel: AdsPanelPort, event_type: str) -> bool:
+        now = time.monotonic()
+        decision_id = str(panel.decision.get('decision_id', ''))
+        if (not self.state.authenticated or self.state.closing
+                or panel.slot_id != 'village-board' or not decision_id
+                or panel.decision.get('empty') or not panel.displayed
+                or panel.event_rejected
+                or panel.image_status != '준비' or now < panel.event_retry_at):
+            return False
+        if event_type == 'impression':
+            if panel.impression_pending or panel.impression_ok:
+                return False
+            panel.impression_pending = True
+        elif event_type == 'click':
+            if not panel.impression_ok or panel.click_pending or panel.click_ok:
+                return False
+            panel.click_requested = panel.click_pending = True
+        else:
+            return False
+        panel.event_error = ''
+        panel.message = '노출 저장 중' if event_type == 'impression' else '클릭 저장 중'
+        self.worker.submit(Request(
+            'ad_event', request_id=panel.request_id, slot_id=panel.slot_id,
+            decision_id=decision_id, event_type=event_type))
+        return True

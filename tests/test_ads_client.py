@@ -235,6 +235,12 @@ class AdsStateTests(unittest.TestCase):
         self.assertFalse(panel.begin(100, True))  # Decode/display before refreshing after hidden time.
         panel.image_ready(True)
         panel.mark_displayed(100)
+        self.assertFalse(panel.begin(110, True))  # Keep the decision until impression acknowledgment.
+        panel.impression_pending = True
+        panel.apply_event(Result('ad_event', request_id=1, decision_id='decision-1',
+                                 event_type='impression', ad_event={
+                                     'event_id': 'decision-1:impression',
+                                     'event_type': 'impression', 'created': True}), 101)
         self.assertFalse(panel.begin(109, True))
         self.assertFalse(panel.begin(110, False))
         self.assertTrue(panel.begin(110, True))
